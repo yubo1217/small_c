@@ -20,11 +20,18 @@ class Char(Expr):
     def __repr__(self):
         return f"Char('{self.value}')"
 
+class StringLiteral(Expr):
+    def __init__(self, value):
+        self.value = value
+    def __repr__(self):
+        return f"StringLiteral({self.value!r})"
+
 class Identifier(Expr):
     def __init__(self, name):
         self.name = name
     def __repr__(self):
         return f"Identifier({self.name})"
+
 
 class UnaryOp(Expr):
     def __init__(self, op, operand):
@@ -67,9 +74,19 @@ class ArrayAccess(Expr):
     def __repr__(self):
         return f"ArrayAccess({self.array}, {self.index})"
 
+class Assignment(Expr):
+    def __init__(self, target, op, value):  # [1] 加上 op
+        self.target = target
+        self.op = op
+        self.value = value
+    def __repr__(self):
+        return f"Assignment({self.target}, {self.op}, {self.value})"
+
 # --- Statement ---
 class Stmt(AST):
     pass
+
+
 
 class VarDecl(Stmt):
     def __init__(self, var_type, name, value=None, is_pointer=False):
@@ -81,7 +98,7 @@ class VarDecl(Stmt):
         return f"VarDecl({self.var_type}, {self.name}, {self.value}, pointer={self.is_pointer})"
 
 class ArrayDecl(Stmt):
-    def __init__(self, var_type, name, size, value=None):
+    def __init__(self, var_type, name, size, value=None):  # 補回 value
         self.var_type = var_type
         self.name = name
         self.size = size
@@ -89,12 +106,7 @@ class ArrayDecl(Stmt):
     def __repr__(self):
         return f"ArrayDecl({self.var_type}, {self.name}, size={self.size}, value={self.value})"
 
-class Assignment(Stmt):
-    def __init__(self, target, value):
-        self.target = target
-        self.value = value
-    def __repr__(self):
-        return f"Assignment({self.target}, {self.value})"
+
 
 class Block(Stmt):
     def __init__(self, statements):
@@ -147,21 +159,15 @@ class ContinueStmt(Stmt):
     def __repr__(self):
         return "ContinueStmt()"
 
-class ErrorStmt(Stmt):
-    def __init__(self, message, token):
-        self.message = message
-        self.token = token
-    def __repr__(self):
-        return f"ErrorStmt({self.message}, {self.token})"
-
 class FuncDef(Stmt):
-    def __init__(self, ret_type, name, params, body):
+    def __init__(self, ret_type, name, params, body, is_pointer=False):
         self.ret_type = ret_type
         self.name = name
         self.params = params
         self.body = body
+        self.is_pointer = is_pointer
     def __repr__(self):
-        return f"FuncDef({self.ret_type}, {self.name}, {self.params}, {self.body})"
+        return f"FuncDef({self.ret_type}, {'*' if self.is_pointer else ''}{self.name}, {self.params}, {self.body})"
 
 # --- Program ---
 class Program(AST):
@@ -175,18 +181,20 @@ class Program(AST):
 class Parser:
     def __init__(self, text):
         self.lexer = Lexer(text)
-        self.tokens = list(self.lexer.generate_tokens())
+        self.tokens = list(self.lexer.tokenize())  # [3] generate_tokens -> tokenize
         self.pos = 0
         self.current_token = self.tokens[self.pos]
 
     # ----- 工具 -----
-    def eat(self, token_type):
-        if self.current_token.type == token_type:
+    def eat(self, kind):
+        if self.current_token.kind == "ERROR":  # [15] ERROR token 統一在這裡 raise
+            raise Exception(f"Line {self.current_token.line}: {self.current_token.value}")
+        if self.current_token.kind == kind:  # [4] .type -> .kind
             self.pos += 1
             if self.pos < len(self.tokens):
                 self.current_token = self.tokens[self.pos]
         else:
-            raise Exception(f"Expected {token_type}, got {self.current_token}")
+            raise Exception(f"Line {self.current_token.line}: Expected {kind}, got {self.current_token.kind}")
 
     def peek(self):
         if self.pos + 1 < len(self.tokens):
@@ -198,71 +206,69 @@ class Parser:
             return self.tokens[self.pos + 2]
         return None
 
-    # ----- 容錯 -----
-    def error(self, msg):
-        tok = self.current_token
-        while tok.type not in ("SEMI", "RBRACE", "EOF"):
-            self.pos += 1
-            if self.pos < len(self.tokens):
-                tok = self.tokens[self.pos]
-            else:
-                break
-        if tok.type == "SEMI":
-            self.eat("SEMI")
-        return ErrorStmt(msg, tok)
+    def is_type_token(self):  # [6] 集中判斷 type token
+        return self.current_token.kind in ("INT", "CHAR", "VOID")
 
     # ----- 入口 -----
     def parse(self):
         decls = []
-        while self.current_token.type != "EOF":
+        while self.current_token.kind != "EOF":  # [4]
             decls.append(self.declaration())
         return Program(decls)
 
     # ----- declaration -----
+
+    def is_func_def(self):
+        p1 = self.peek()
+        p2 = self.peek2()
+        if p1 and p1.kind == "MUL":
+            # int *func() 的情況
+            p3 = self.tokens[self.pos + 3] if self.pos + 3 < len(self.tokens) else None
+            return p2 and p2.kind == "IDENT" and p3 and p3.kind == "LPAREN"
+        # int func() 的情況
+        return p1 and p1.kind == "IDENT" and p2 and p2.kind == "LPAREN"
+
     def declaration(self):
-        if self.current_token.type == "TYPE":
-            if self.peek() and self.peek().type == "ID" and self.peek2() and self.peek2().type == "LPAREN":
+        if self.is_type_token():
+            if self.is_func_def():
                 return self.func_def()
             else:
                 return self.var_decl()
         return self.statement()
 
     # ----- statement -----
-    def statement(self):
-        try:
-            tok = self.current_token
-            if tok.type == "IF":
-                return self.if_stmt()
-            if tok.type == "WHILE":
-                return self.while_stmt()
-            if tok.type == "FOR":
-                return self.for_stmt()
-            if tok.type == "DO":
-                return self.do_while_stmt()
-            if tok.type == "RETURN":
-                return self.return_stmt()
-            if tok.type == "BREAK":
-                self.eat("BREAK")
-                self.eat("SEMI")
-                return BreakStmt()
-            if tok.type == "CONTINUE":
-                self.eat("CONTINUE")
-                self.eat("SEMI")
-                return ContinueStmt()
-            if tok.type == "LBRACE":
-                return self.block()
-            expr = self.expr()
+    def statement(self):  # [9] 移除 try/except
+        tok = self.current_token
+        if tok.kind == "IF":  # [4]
+            return self.if_stmt()
+        if tok.kind == "WHILE":
+            return self.while_stmt()
+        if tok.kind == "FOR":
+            return self.for_stmt()
+        if tok.kind == "DO":
+            return self.do_while_stmt()
+        if tok.kind == "RETURN":
+            return self.return_stmt()
+        if tok.kind == "BREAK":
+            self.eat("BREAK")
             self.eat("SEMI")
-            return expr
-        except Exception as e:
-            return self.error(str(e))
+            return BreakStmt()
+        if tok.kind == "CONTINUE":
+            self.eat("CONTINUE")
+            self.eat("SEMI")
+            return ContinueStmt()
+        if tok.kind == "LBRACE":
+            return self.block()
+        expr = self.expr()
+        self.eat("SEMI")
+        return expr
 
     # ----- block -----
     def block(self):
         self.eat("LBRACE")
         stmts = []
-        while self.current_token.type != "RBRACE" and self.current_token.type != "EOF":
-            if self.current_token.type == "TYPE":
+        while self.current_token.kind != "RBRACE" and self.current_token.kind != "EOF":  # [4]
+            if self.is_type_token():  # [6]
                 stmts.append(self.var_decl())
             else:
                 stmts.append(self.statement())
@@ -271,7 +277,7 @@ class Parser:
 
     # ----- block_or_stmt -----
     def block_or_stmt(self):
-        if self.current_token.type == "LBRACE":
+        if self.current_token.kind == "LBRACE":  # [4]
             return self.block()
         stmt = self.statement()
         return Block([stmt])
@@ -279,19 +285,19 @@ class Parser:
     # ----- var_decl -----
     def var_decl(self):
         var_type = self.current_token.value
-        self.eat("TYPE")
+        self.eat(self.current_token.kind)  # [7] 動態 eat 當前 type token
         is_pointer = False
-        if self.current_token.type == "MUL":
+        if self.current_token.kind == "MUL":  # [4]
             is_pointer = True
             self.eat("MUL")
         name = self.current_token.value
-        self.eat("ID")
+        self.eat("IDENT")  # [8]
 
-        if self.current_token.type == "LBRACKET":
+        if self.current_token.kind == "LBRACKET":  # [4]
             return self.array_decl(var_type, name)
 
         value = None
-        if self.current_token.type == "ASSIGN":
+        if self.current_token.kind == "ASSIGN":  # [4]
             self.eat("ASSIGN")
             value = self.expr()
 
@@ -304,13 +310,13 @@ class Parser:
         self.eat("RBRACKET")
 
         value = None
-        if self.current_token.type == "ASSIGN":
+        if self.current_token.kind == "ASSIGN":  # [4]
             self.eat("ASSIGN")
             self.eat("LBRACE")
             value = []
-            if self.current_token.type != "RBRACE":
+            if self.current_token.kind != "RBRACE":  # [4]
                 value.append(self.expr())
-                while self.current_token.type == "COMMA":
+                while self.current_token.kind == "COMMA":  # [4]
                     self.eat("COMMA")
                     value.append(self.expr())
             self.eat("RBRACE")
@@ -321,29 +327,35 @@ class Parser:
     # ----- func_def -----
     def func_def(self):
         ret_type = self.current_token.value
-        self.eat("TYPE")
+        self.eat(self.current_token.kind)
+        
+        is_pointer = False
+        if self.current_token.kind == "MUL":
+            is_pointer = True
+            self.eat("MUL")
+        
         name = self.current_token.value
-        self.eat("ID")
+        self.eat("IDENT")
         self.eat("LPAREN")
         params = []
-        if self.current_token.type != "RPAREN":
+        if self.current_token.kind != "RPAREN":
             params.append(self.param())
-            while self.current_token.type == "COMMA":
+            while self.current_token.kind == "COMMA":
                 self.eat("COMMA")
                 params.append(self.param())
         self.eat("RPAREN")
         body = self.block()
-        return FuncDef(ret_type, name, params, body)
+        return FuncDef(ret_type, name, params, body, is_pointer)
 
     def param(self):
         var_type = self.current_token.value
-        self.eat("TYPE")
+        self.eat(self.current_token.kind)  # [7]
         is_pointer = False
-        if self.current_token.type == "MUL":
+        if self.current_token.kind == "MUL":  # [4]
             is_pointer = True
             self.eat("MUL")
         name = self.current_token.value
-        self.eat("ID")
+        self.eat("IDENT")  # [8]
         return VarDecl(var_type, name, None, is_pointer)
 
     # ----- if / while / do / for -----
@@ -354,7 +366,7 @@ class Parser:
         self.eat("RPAREN")
         then_branch = self.block_or_stmt()
         else_branch = None
-        if self.current_token.type == "ELSE":
+        if self.current_token.kind == "ELSE":  # [4]
             self.eat("ELSE")
             else_branch = self.block_or_stmt()
         return IfStmt(cond, then_branch, else_branch)
@@ -382,21 +394,17 @@ class Parser:
         self.eat("LPAREN")
 
         init = None
-        if self.current_token.type == "TYPE":
-            init = self.var_decl()
-        elif self.current_token.type != "SEMI":
+        if self.current_token.kind != "SEMI":
             init = self.expr()
-            self.eat("SEMI")
-        else:
-            self.eat("SEMI")
+        self.eat("SEMI")
 
         condition = None
-        if self.current_token.type != "SEMI":
+        if self.current_token.kind != "SEMI":  # [4]
             condition = self.expr()
         self.eat("SEMI")
 
         update = None
-        if self.current_token.type != "RPAREN":
+        if self.current_token.kind != "RPAREN":  # [4]
             update = self.expr()
         self.eat("RPAREN")
 
@@ -406,7 +414,9 @@ class Parser:
     # ----- return -----
     def return_stmt(self):
         self.eat("RETURN")
-        val = self.expr()
+        val = None
+        if self.current_token.kind != "SEMI":
+            val = self.expr()
         self.eat("SEMI")
         return Return(val)
 
@@ -414,21 +424,21 @@ class Parser:
     def expr(self):
         return self.assignment()
 
-    # assignment : logic_or (ASSIGN | ADD_ASSIGN | SUB_ASSIGN | MUL_ASSIGN | DIV_ASSIGN | MOD_ASSIGN) assignment?
+    # assignment : logic_or (ASSIGN | ADD_ASSIGN | ...) assignment
     def assignment(self):
         node = self.logic_or()
-        if self.current_token.type in ("ASSIGN", "ADD_ASSIGN", "SUB_ASSIGN", "MUL_ASSIGN", "DIV_ASSIGN", "MOD_ASSIGN"):
-            op = self.current_token.type
+        if self.current_token.kind in ("ASSIGN", "ADD_ASSIGN", "SUB_ASSIGN", "MUL_ASSIGN", "DIV_ASSIGN", "MOD_ASSIGN"):  # [4]
+            op = self.current_token.kind
             self.eat(op)
             value = self.assignment()
-            return Assignment(node, value)  # op info 可以加到 Assignment 如果需要
+            return Assignment(node, op, value)  # [1] 傳入 op
         return node
 
     # logic_or : logic_and ('||' logic_and)*
     def logic_or(self):
         node = self.logic_and()
-        while self.current_token.type == "OR_OR":
-            op = self.current_token.type
+        while self.current_token.kind == "OR":  # [10] OR_OR -> OR
+            op = self.current_token.kind
             self.eat(op)
             node = BinOp(node, op, self.logic_and())
         return node
@@ -436,8 +446,8 @@ class Parser:
     # logic_and : bit_or ('&&' bit_or)*
     def logic_and(self):
         node = self.bit_or()
-        while self.current_token.type == "AND_AND":
-            op = self.current_token.type
+        while self.current_token.kind == "AND":  # [11] AND_AND -> AND
+            op = self.current_token.kind
             self.eat(op)
             node = BinOp(node, op, self.bit_or())
         return node
@@ -445,8 +455,8 @@ class Parser:
     # bit_or : bit_xor ('|' bit_xor)*
     def bit_or(self):
         node = self.bit_xor()
-        while self.current_token.type == "BIT_OR":
-            op = self.current_token.type
+        while self.current_token.kind == "BIT_OR":  # [4]
+            op = self.current_token.kind
             self.eat(op)
             node = BinOp(node, op, self.bit_xor())
         return node
@@ -454,8 +464,8 @@ class Parser:
     # bit_xor : bit_and ('^' bit_and)*
     def bit_xor(self):
         node = self.bit_and()
-        while self.current_token.type == "BIT_XOR":
-            op = self.current_token.type
+        while self.current_token.kind == "BIT_XOR":  # [4]
+            op = self.current_token.kind
             self.eat(op)
             node = BinOp(node, op, self.bit_and())
         return node
@@ -463,8 +473,8 @@ class Parser:
     # bit_and : equality ('&' equality)*
     def bit_and(self):
         node = self.equality()
-        while self.current_token.type == "BIT_AND":
-            op = self.current_token.type
+        while self.current_token.kind == "BIT_AND":  # [13] AMP -> BIT_AND
+            op = self.current_token.kind
             self.eat(op)
             node = BinOp(node, op, self.equality())
         return node
@@ -472,8 +482,8 @@ class Parser:
     # equality : rel (('==' | '!=') rel)*
     def equality(self):
         node = self.rel()
-        while self.current_token.type in ("EQ", "NEQ"):
-            op = self.current_token.type
+        while self.current_token.kind in ("EQ", "NEQ"):  # [4]
+            op = self.current_token.kind
             self.eat(op)
             node = BinOp(node, op, self.rel())
         return node
@@ -481,8 +491,8 @@ class Parser:
     # rel : shift ('<' | '>' | '<=' | '>=') shift
     def rel(self):
         node = self.shift()
-        while self.current_token.type in ("LT", "GT", "LE", "GE"):
-            op = self.current_token.type
+        while self.current_token.kind in ("LT", "GT", "LTE", "GTE"):  # [12] LE/GE -> LTE/GTE
+            op = self.current_token.kind
             self.eat(op)
             node = BinOp(node, op, self.shift())
         return node
@@ -490,8 +500,8 @@ class Parser:
     # shift : add (('<<' | '>>') add)*
     def shift(self):
         node = self.add()
-        while self.current_token.type in ("LSHIFT", "RSHIFT"):
-            op = self.current_token.type
+        while self.current_token.kind in ("LSHIFT", "RSHIFT"):  # [4]
+            op = self.current_token.kind
             self.eat(op)
             node = BinOp(node, op, self.add())
         return node
@@ -499,8 +509,8 @@ class Parser:
     # add : mul ('+' | '-')*
     def add(self):
         node = self.mul()
-        while self.current_token.type in ("PLUS", "MINUS"):
-            op = self.current_token.type
+        while self.current_token.kind in ("PLUS", "MINUS"):  # [4]
+            op = self.current_token.kind
             self.eat(op)
             node = BinOp(node, op, self.mul())
         return node
@@ -508,72 +518,64 @@ class Parser:
     # mul : unary ('*' | '/' | '%')*
     def mul(self):
         node = self.unary()
-        while self.current_token.type in ("MUL", "DIV", "MOD"):
-            op = self.current_token.type
+        while self.current_token.kind in ("MUL", "DIV", "MOD"):  # [4]
+            op = self.current_token.kind
             self.eat(op)
             node = BinOp(node, op, self.unary())
         return node
 
-    # unary : ('+' | '-' | '!' | '~' | '*' | '&' | '++' | '--') unary | primary | post_inc_dec
+    # unary : ('+' | '-' | '!' | '~' | '*' | '&' | '++' | '--') unary | primary
     def unary(self):
         tok = self.current_token
-        if tok.type in ("PLUS", "MINUS", "NOT", "BIT_NOT", "MUL", "AMP"):
-            self.eat(tok.type)
-            if tok.type == "PLUS":
-                return UnaryOp("PLUS", self.unary())
-            elif tok.type == "MINUS":
-                return UnaryOp("MINUS", self.unary())
-            elif tok.type == "NOT":
-                return UnaryOp("NOT", self.unary())
-            elif tok.type == "BIT_NOT":
-                return UnaryOp("BIT_NOT", self.unary())
-            elif tok.type == "MUL":
-                return Deref(self.unary())
-            elif tok.type == "AMP":
-                return AddressOf(self.unary())
-        if tok.type in ("INC", "DEC"):  # 前置 ++x / --x
-            self.eat(tok.type)
-            return UnaryOp(tok.type, self.unary())
+        if tok.kind in ("PLUS", "MINUS", "NOT", "BIT_NOT"):  # [4]
+            self.eat(tok.kind)
+            return UnaryOp(tok.kind, self.unary())
+        if tok.kind == "MUL":
+            self.eat("MUL")
+            return Deref(self.unary())
+        if tok.kind == "BIT_AND":  # [13] AMP -> BIT_AND
+            self.eat("BIT_AND")
+            return AddressOf(self.unary())
+        if tok.kind in ("INC", "DEC"):  # 前置 ++x / --x
+            self.eat(tok.kind)
+            return UnaryOp(tok.kind, self.unary())
         return self.primary()
 
-    # primary : NUMBER | CHAR | ID | ID '(' args ')' | ID '[' expr ']' | '(' expr ')' | post_inc_dec
+    # primary : NUMBER | CHAR | IDENT | IDENT '(' args ')' | IDENT '[' expr ']' | '(' expr ')'
     def primary(self):
         tok = self.current_token
-        if tok.type == "NUMBER":
+        if tok.kind == "NUMBER":
             self.eat("NUMBER")
-            node = Number(tok.value)
-        elif tok.type == "CHAR":
+            return Number(tok.value)
+        if tok.kind == "CHAR":  # 字元字面量
             self.eat("CHAR")
-            node = Char(tok.value)
-        elif tok.type == "ID":
+            return Char(tok.value)
+        if tok.kind == "STRING":
+            self.eat("STRING")
+            return StringLiteral(tok.value)
+        if tok.kind == "IDENT":  # [8]
             name = tok.value
-            self.eat("ID")
+            self.eat("IDENT")
             node = Identifier(name)
-            if self.current_token.type == "LPAREN":  # 函式呼叫
+            if self.current_token.kind == "LPAREN":  # 函式呼叫
                 self.eat("LPAREN")
                 args = []
-                if self.current_token.type != "RPAREN":
+                if self.current_token.kind != "RPAREN":  # [4]
                     args.append(self.expr())
-                    while self.current_token.type == "COMMA":
+                    while self.current_token.kind == "COMMA":  # [4]
                         self.eat("COMMA")
                         args.append(self.expr())
                 self.eat("RPAREN")
-                node = Call(Identifier(name), args)
-            if self.current_token.type == "LBRACKET":  # 陣列
+                node = Call(node, args)  # [14] Call(node, args) 不重複建立 Identifier
+            if self.current_token.kind == "LBRACKET":  # 陣列存取
                 self.eat("LBRACKET")
                 index = self.expr()
                 self.eat("RBRACKET")
-                node = ArrayAccess(Identifier(name), index)
-        elif tok.type == "LPAREN":
+                node = ArrayAccess(node, index)
+            return node
+        if tok.kind == "LPAREN":
             self.eat("LPAREN")
             node = self.expr()
             self.eat("RPAREN")
-        else:
-            return self.error(f"Unexpected token {tok}")
-
-        # 後置 ++ / --
-        if self.current_token.type in ("INC", "DEC"):
-            op = self.current_token.type
-            self.eat(op)
-            node = UnaryOp(op+"_POST", node)
-        return node
+            return node
+        raise Exception(f"Line {tok.line}: Unexpected token {tok.kind}")  # [9] 直接 raise
