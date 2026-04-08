@@ -1,18 +1,85 @@
+"""
+repl.py — Small-C 互動式直譯器的 REPL 環境
+============================================
+本模組實作 Small-C 直譯器的互動介面，提供兩大功能：
+
+  1. ReplInputCollector（輸入收集器）
+     逐行收集使用者輸入，追蹤大括號深度與註解/字串狀態，
+     判斷目前輸入的程式碼片段是否已完整（可送交執行）。
+     支援跨行的區塊（如函式定義、控制流程），不強制單行輸入。
+
+  2. REPL（互動環境主體）
+     維護程式緩衝區（buffer），提供完整的行編輯指令集，
+     並在兩種模式下執行 Small-C 程式碼：
+       - 互動模式：直接在提示符後輸入並即時執行。
+       - 緩衝模式：透過 APPEND / LOAD 載入完整程式後，以 RUN 執行。
+
+支援的環境指令：
+  程式管理：LOAD、SAVE、LIST、EDIT、DELETE、INSERT、APPEND、NEW
+  執行控制：RUN、CHECK、TRACE ON/OFF
+  狀態查詢：VARS、FUNCS
+  系統工具：HELP、ABOUT、CLEAR、QUIT / EXIT
+
+Usage:
+    repl = REPL()
+    repl.run()   # 啟動互動迴圈
+"""
+
 import os
 import sys
 from lexer import Lexer, preprocess
 from parser import Parser
 from interpreter import Interpreter
 
+
+# ═══════════════════════════════════════════════════════════
+# 多行輸入收集器
+# ═══════════════════════════════════════════════════════════
+
 class ReplInputCollector:
+    """
+    逐行收集互動模式的輸入，追蹤語法狀態以判斷輸入是否完整。
+
+    判斷「完整」的條件：
+      - 所有大括號已配對（depth == 0）
+      - 不在未閉合的區塊註解（/* ... */）中
+      - 字串與字元字面量狀態不影響完整性判斷（換行即視為結束）
+
+    設計動機：
+      若使用者輸入的是函式定義或含有 { } 的控制流程，
+      需要跨越多行才能構成完整的輸入單元。
+      本類別透過逐字元掃描，在不依賴完整 Parser 的情況下，
+      輕量地判斷何時可以將累積的原始碼送交執行。
+
+    Attributes:
+        source          (str):  目前累積的原始碼字串。
+        depth           (int):  目前未配對的左大括號數量。
+        in_block_comment (bool): 是否正在區塊註解（/* ... */）內部。
+        in_string       (bool): 是否正在字串字面量（" ... "）內部。
+        in_char         (bool): 是否正在字元字面量（' ... '）內部。
+    """
+
     def __init__(self):
+        """初始化收集器，所有狀態歸零。"""
         self.source = ""
         self.depth = 0
         self.in_block_comment = False
         self.in_string = False
         self.in_char = False
 
-    def feed(self, line):
+    def feed(self, line: str):
+        """
+        將一行輸入加入累積的原始碼，並更新語法狀態。
+
+        掃描規則（依狀態優先）：
+          - 區塊註解中：尋找 */ 結束符號。
+          - 字串中：處理跳脫字元，尋找 " 結束。
+          - 字元中：處理跳脫字元，尋找 ' 結束。
+          - 一般狀態：識別 //（跳過此行剩餘）、/*、"、'、{ 與 }。
+
+        Args:
+            line (str): 使用者輸入的一行原始碼。
+        """
         self.source += line + '\n'
         i = 0
         while i < len(line):
@@ -23,17 +90,17 @@ class ReplInputCollector:
                     i += 1
             elif self.in_string:
                 if c == '\\':
-                    i += 1
+                    i += 1  # 跳脫字元：跳過下一個字元
                 elif c == '"':
                     self.in_string = False
             elif self.in_char:
                 if c == '\\':
-                    i += 1
+                    i += 1  # 跳脫字元：跳過下一個字元
                 elif c == "'":
                     self.in_char = False
             else:
                 if c == '/' and i + 1 < len(line) and line[i + 1] == '/':
-                    break  # 單行註解，跳過此行剩餘
+                    break  # 單行註解，跳過此行剩餘字元
                 elif c == '/' and i + 1 < len(line) and line[i + 1] == '*':
                     self.in_block_comment = True
                 elif c == '"':
@@ -46,10 +113,17 @@ class ReplInputCollector:
                     self.depth -= 1
             i += 1
 
-    def is_complete(self):
+    def is_complete(self) -> bool:
+        """
+        判斷目前累積的輸入是否構成完整的程式碼片段。
+
+        Returns:
+            bool: 大括號已全部配對且不在區塊註解中時為 True。
+        """
         return self.depth == 0 and not self.in_block_comment
 
     def reset(self):
+        """清除所有累積的輸入與語法狀態，準備收集下一個輸入單元。"""
         self.source = ""
         self.depth = 0
         self.in_block_comment = False
@@ -57,25 +131,67 @@ class ReplInputCollector:
         self.in_char = False
 
 
-class REPL:
-    def __init__(self):
-        self.interpreter = Interpreter()
-        self.buffer = []        # 程式緩衝區，每個元素是一行字串
-        self.modified = False   # 緩衝區是否有未儲存的修改
-        self.trace = False
+# ═══════════════════════════════════════════════════════════
+# REPL 互動環境主體
+# ═══════════════════════════════════════════════════════════
 
+class REPL:
+    """
+    Small-C 互動式直譯器的 REPL 環境。
+
+    維護一個程式緩衝區（buffer），使用者可透過行編輯指令修改程式碼，
+    也可在提示符後直接輸入 Small-C 程式碼並即時執行。
+
+    Attributes:
+        interpreter (Interpreter): Small-C 直譯器實例，共享於所有執行模式。
+        buffer      (list[str]):   程式碼緩衝區，每個元素為一行字串。
+        modified    (bool):        緩衝區是否有尚未儲存的修改。
+        trace       (bool):        TRACE 模式是否啟用。
+    """
+
+    # 所有可識別的環境指令（小寫）
     COMMANDS = {
         'load', 'save', 'list', 'edit', 'delete', 'insert',
         'append', 'new', 'run', 'check', 'trace', 'vars',
         'funcs', 'help', 'about', 'clear', 'quit', 'exit',
     }
 
-    def is_command(self, line):
+    def __init__(self):
+        """初始化 REPL，建立空的緩衝區與直譯器。"""
+        self.interpreter = Interpreter()
+        self.buffer = []
+        self.modified = False
+        self.trace = False
+
+    def is_command(self, line: str) -> bool:
+        """
+        判斷輸入的第一個詞是否為環境指令。
+
+        Args:
+            line (str): 使用者輸入的一行文字。
+
+        Returns:
+            bool: 第一個詞屬於 COMMANDS 集合時為 True。
+        """
         first = line.strip().split()[0].lower() if line.strip() else ''
         return first in self.COMMANDS
 
-    # ----- 主迴圈 -----
+    # ── 主迴圈 ────────────────────────────────────
+
     def run(self):
+        """
+        啟動 REPL 互動迴圈，持續讀取輸入直到 EOF 或 QUIT 指令。
+
+        輸入處理邏輯：
+          1. 若輸入為空行且目前無累積輸入，直接忽略。
+          2. 若為第一行且是環境指令，直接分派給 handle_command()。
+          3. 其他情況交給 ReplInputCollector 累積。
+          4. 一旦收集器判斷輸入完整，送交 execute_interactive() 執行。
+
+        提示符：
+          - 初始狀態顯示 "sc> "。
+          - 輸入跨行時顯示 "  > " 表示等待續行。
+        """
         print("=" * 42)
         print("  Small-C Interactive Interpreter v1.0")
         print("  System Software Final Project, Spring 2026")
@@ -93,13 +209,11 @@ class REPL:
                 print()
                 break
 
-            # 空行
             if not line.strip():
                 if collector.source:
                     collector.feed(line)
                 continue
 
-            # 第一行且是環境指令
             if not collector.source and self.is_command(line):
                 self.handle_command(line.strip())
                 continue
@@ -112,8 +226,16 @@ class REPL:
                 if source:
                     self.execute_interactive(source)
 
-    # ----- 互動執行 -----
-    def execute_interactive(self, source):
+    # ── 互動執行 ──────────────────────────────────
+
+    def execute_interactive(self, source: str):
+        """
+        對單段原始碼進行前處理、解析並直接執行（互動模式）。
+        執行期間的錯誤與程式終止均捕捉後印出訊息，不中斷 REPL 迴圈。
+
+        Args:
+            source (str): 要執行的 Small-C 原始碼字串。
+        """
         try:
             source = preprocess(source)
             parser = Parser(source)
@@ -124,48 +246,50 @@ class REPL:
         except Exception as e:
             print(f"Error: {e}")
 
-    # ----- 環境指令分派 -----
-    def handle_command(self, line):
+    # ── 環境指令分派 ──────────────────────────────
+
+    def handle_command(self, line: str):
+        """
+        解析並分派環境指令到對應的處理方法。
+
+        Args:
+            line (str): 去除前後空白的完整指令字串。
+        """
         parts = line.split()
         cmd = parts[0].lower()
 
-        if cmd == 'load':
-            self.cmd_load(parts)
-        elif cmd == 'save':
-            self.cmd_save(parts)
-        elif cmd == 'list':
-            self.cmd_list(parts)
-        elif cmd == 'edit':
-            self.cmd_edit(parts)
-        elif cmd == 'delete':
-            self.cmd_delete(parts)
-        elif cmd == 'insert':
-            self.cmd_insert(parts)
-        elif cmd == 'append':
-            self.cmd_append()
-        elif cmd == 'new':
-            self.cmd_new()
-        elif cmd == 'run':
-            self.cmd_run()
-        elif cmd == 'check':
-            self.cmd_check()
-        elif cmd == 'trace':
-            self.cmd_trace(parts)
-        elif cmd == 'vars':
-            self.cmd_vars()
-        elif cmd == 'funcs':
-            self.cmd_funcs()
-        elif cmd == 'help':
-            self.cmd_help(parts)
-        elif cmd == 'about':
-            self.cmd_about()
-        elif cmd == 'clear':
-            os.system('clear' if os.name != 'nt' else 'cls')
-        elif cmd in ('quit', 'exit'):
-            self.cmd_quit()
+        dispatch = {
+            'load':   lambda: self.cmd_load(parts),
+            'save':   lambda: self.cmd_save(parts),
+            'list':   lambda: self.cmd_list(parts),
+            'edit':   lambda: self.cmd_edit(parts),
+            'delete': lambda: self.cmd_delete(parts),
+            'insert': lambda: self.cmd_insert(parts),
+            'append': lambda: self.cmd_append(),
+            'new':    lambda: self.cmd_new(),
+            'run':    lambda: self.cmd_run(),
+            'check':  lambda: self.cmd_check(),
+            'trace':  lambda: self.cmd_trace(parts),
+            'vars':   lambda: self.cmd_vars(),
+            'funcs':  lambda: self.cmd_funcs(),
+            'help':   lambda: self.cmd_help(parts),
+            'about':  lambda: self.cmd_about(),
+            'clear':  lambda: os.system('clear' if os.name != 'nt' else 'cls'),
+            'quit':   lambda: self.cmd_quit(),
+            'exit':   lambda: self.cmd_quit(),
+        }
+        if cmd in dispatch:
+            dispatch[cmd]()
 
-    # ----- 程式管理指令 -----
+    # ── 程式管理指令 ──────────────────────────────
+
     def cmd_load(self, parts):
+        """
+        從檔案載入 Small-C 原始碼到緩衝區。
+        若緩衝區有未儲存的修改，會先詢問是否放棄。
+
+        用法：LOAD <filename>
+        """
         if len(parts) < 2:
             print("Usage: LOAD <filename>")
             return
@@ -187,6 +311,11 @@ class REPL:
             print(f"Error: {e}")
 
     def cmd_save(self, parts):
+        """
+        將緩衝區內容儲存到指定檔案。
+
+        用法：SAVE <filename>
+        """
         if len(parts) < 2:
             print("Usage: SAVE <filename>")
             return
@@ -200,10 +329,17 @@ class REPL:
             print(f"Error: {e}")
 
     def cmd_list(self, parts):
+        """
+        列出緩衝區中的指定行或範圍，每行前顯示行號。
+
+        用法：
+          LIST          → 列出全部內容
+          LIST <n>      → 列出第 n 行
+          LIST <n1>-<n2> → 列出第 n1 到 n2 行
+        """
         if not self.buffer:
             print("Buffer is empty.")
             return
-        # 解析範圍
         try:
             if len(parts) == 1:
                 start, end = 1, len(self.buffer)
@@ -225,6 +361,12 @@ class REPL:
                 print(f"{i:4}: {self.buffer[i - 1]}")
 
     def cmd_edit(self, parts):
+        """
+        顯示指定行的現有內容並等待使用者輸入新內容取代。
+        若使用者直接按 Enter（輸入為空），則保留原始內容不修改。
+
+        用法：EDIT <n>
+        """
         if len(parts) < 2:
             print("Usage: EDIT <n>")
             return
@@ -243,6 +385,13 @@ class REPL:
             self.modified = True
 
     def cmd_delete(self, parts):
+        """
+        從緩衝區刪除指定行或範圍的行，後續行號自動遞減。
+
+        用法：
+          DELETE <n>        → 刪除第 n 行
+          DELETE <n1>-<n2>  → 刪除第 n1 到 n2 行
+        """
         try:
             if len(parts) == 2:
                 if '-' in parts[1]:
@@ -265,6 +414,12 @@ class REPL:
         self.modified = True
 
     def cmd_insert(self, parts):
+        """
+        在指定行號前插入一或多行內容，以單獨一行的 '.' 結束輸入。
+        插入後，原本該行號以後的所有行號依序遞增。
+
+        用法：INSERT <n>
+        """
         if len(parts) < 2:
             print("Usage: INSERT <n>")
             return
@@ -291,6 +446,11 @@ class REPL:
         self.modified = True
 
     def cmd_append(self):
+        """
+        在緩衝區末尾追加一或多行內容，以單獨一行的 '.' 結束輸入。
+
+        用法：APPEND
+        """
         print("Enter lines (type '.' to finish):")
         line_num = len(self.buffer) + 1
         while True:
@@ -302,6 +462,12 @@ class REPL:
             line_num += 1
 
     def cmd_new(self):
+        """
+        清空緩衝區並重置直譯器狀態。
+        若有未儲存的修改，會先詢問是否放棄。
+
+        用法：NEW
+        """
         if self.modified:
             ans = input("Buffer has unsaved changes. Discard? (y/n): ").strip().lower()
             if ans != 'y':
@@ -311,8 +477,16 @@ class REPL:
         self.interpreter.reset()
         print("All cleared.")
 
-    # ----- 執行指令 -----
+    # ── 執行指令 ──────────────────────────────────
+
     def cmd_run(self):
+        """
+        對緩衝區中的完整程式進行前處理、解析並執行。
+        執行前會重置直譯器狀態，並套用目前的 TRACE 設定。
+        執行結果與錯誤訊息均印出後回到提示符。
+
+        用法：RUN
+        """
         if not self.buffer:
             print("Error: Buffer is empty.")
             return
@@ -332,6 +506,12 @@ class REPL:
             print(f"Error: {e}")
 
     def cmd_check(self):
+        """
+        對緩衝區中的程式碼進行語法檢查，不實際執行。
+        若有語法錯誤，印出所有錯誤訊息與總數；無錯誤時印出確認訊息。
+
+        用法：CHECK
+        """
         if not self.buffer:
             print("Buffer is empty.")
             return
@@ -352,6 +532,12 @@ class REPL:
             print("No errors found.")
 
     def cmd_trace(self, parts):
+        """
+        啟用或關閉 TRACE 模式。啟用時，直譯器執行每個 AST 節點前
+        會在輸出中印出 [trace] 追蹤資訊，方便除錯。
+
+        用法：TRACE ON / TRACE OFF
+        """
         if len(parts) < 2:
             print("Usage: TRACE ON / TRACE OFF")
             return
@@ -368,6 +554,17 @@ class REPL:
             print("Usage: TRACE ON / TRACE OFF")
 
     def cmd_vars(self):
+        """
+        顯示目前直譯器中所有全域變數的名稱、型別與數值。
+
+        輸出格式：
+          - 一般變數：int x = 42
+          - char 變數：char c = 65 (A)（同時顯示 ASCII 字元）
+          - 指標：int *p = 1024（顯示所指位址）
+          - 陣列：int arr[8] = {1, 2, 3, ...}（最多顯示前 10 個元素）
+
+        用法：VARS
+        """
         globals_ = self.interpreter.symtable.get_all_globals()
         if not globals_:
             print("No global variables.")
@@ -393,14 +590,22 @@ class REPL:
                     print(f"  int {name} = {val}")
 
     def cmd_funcs(self):
+        """
+        列出目前直譯器中所有已定義的函式（含使用者定義與內建函式）。
+
+        使用者定義函式顯示回傳型別、名稱與參數列表；
+        內建函式一律標示 [built-in]。
+
+        用法：FUNCS
+        """
         if self.interpreter.functions:
             for name, func in self.interpreter.functions.items():
                 params = ', '.join(
                     f"{p.var_type} {'*' if p.is_pointer else ''}{p.name}"
                     for p in func.params
                 )
-                # 找起始行號（暫時沒有行號資訊就顯示 ?）
                 print(f"  {func.ret_type} {name}({params})")
+
         print("  --- built-in functions ---")
         builtins_list = [
             "int putchar(int ch)",
@@ -430,35 +635,49 @@ class REPL:
         for b in builtins_list:
             print(f"  {b}  [built-in]")
 
-    # ----- 系統指令 -----
+    # ── 系統工具指令 ──────────────────────────────
+
     def cmd_help(self, parts):
+        """
+        顯示所有可用指令的摘要，或特定指令的詳細說明。
+
+        用法：
+          HELP        → 列出所有指令摘要
+          HELP <cmd>  → 顯示指定指令的詳細說明
+        """
         if len(parts) >= 2:
             self.show_help_detail(parts[1].lower())
             return
         print("Available commands:")
         helps = [
-            ("LOAD <file>",       "Load source file into buffer"),
-            ("SAVE <file>",       "Save buffer to file"),
-            ("LIST [n|n1-n2]",    "List buffer contents"),
-            ("EDIT <n>",          "Edit line n"),
-            ("DELETE <n|n1-n2>",  "Delete line(s)"),
-            ("INSERT <n>",        "Insert lines before line n"),
-            ("APPEND",            "Append lines to end of buffer"),
-            ("NEW",               "Clear buffer and reset state"),
-            ("RUN",               "Run program in buffer"),
-            ("CHECK",             "Check syntax without running"),
-            ("TRACE ON|OFF",      "Enable/disable trace mode"),
-            ("VARS",              "Show all global variables"),
-            ("FUNCS",             "List all defined functions"),
-            ("HELP [cmd]",        "Show help"),
-            ("ABOUT",             "Show interpreter info"),
-            ("CLEAR",             "Clear screen"),
-            ("QUIT / EXIT",       "Exit interpreter"),
+            ("LOAD <file>",        "Load source file into buffer"),
+            ("SAVE <file>",        "Save buffer to file"),
+            ("LIST [n|n1-n2]",     "List buffer contents"),
+            ("EDIT <n>",           "Edit line n"),
+            ("DELETE <n|n1-n2>",   "Delete line(s)"),
+            ("INSERT <n>",         "Insert lines before line n"),
+            ("APPEND",             "Append lines to end of buffer"),
+            ("NEW",                "Clear buffer and reset state"),
+            ("RUN",                "Run program in buffer"),
+            ("CHECK",              "Check syntax without running"),
+            ("TRACE ON|OFF",       "Enable/disable trace mode"),
+            ("VARS",               "Show all global variables"),
+            ("FUNCS",              "List all defined functions"),
+            ("HELP [cmd]",         "Show help"),
+            ("ABOUT",              "Show interpreter info"),
+            ("CLEAR",              "Clear screen"),
+            ("QUIT / EXIT",        "Exit interpreter"),
         ]
         for cmd, desc in helps:
             print(f"  {cmd:<20} {desc}")
 
-    def show_help_detail(self, cmd):
+    def show_help_detail(self, cmd: str):
+        """
+        顯示單一指令的詳細說明文字。
+
+        Args:
+            cmd (str): 指令名稱（小寫）。
+        """
         details = {
             'load':   "LOAD <filename> - Load a Small-C source file into the program buffer.",
             'save':   "SAVE <filename> - Save the current buffer to a file.",
@@ -478,10 +697,16 @@ class REPL:
         print(details.get(cmd, f"No detailed help for '{cmd}'."))
 
     def cmd_about(self):
+        """顯示直譯器的名稱、版本與學期資訊。"""
         print("Small-C Interactive Interpreter v1.0")
         print("System Software Final Project, Spring 2026")
 
     def cmd_quit(self):
+        """
+        退出直譯器。若緩衝區有未儲存的修改，會先詢問是否放棄後再離開。
+
+        用法：QUIT / EXIT
+        """
         if self.modified:
             ans = input("Buffer has unsaved changes. Discard and quit? (y/n): ").strip().lower()
             if ans != 'y':

@@ -1,3 +1,29 @@
+"""
+interpreter.py — Small-C 樹狀走訪直譯器（Tree-Walking Interpreter）
+====================================================================
+本模組負責走訪 Parser 產生的 AST，逐節點執行 Small-C 程式。
+
+執行流程：
+  1. execute()           掃描頂層宣告，收集函式定義與全域變數，再呼叫 main()。
+  2. execute_interactive() 互動模式，直接執行單行或片段程式碼，不需要 main()。
+  3. exec_stmt()         遞迴執行各種陳述式節點。
+  4. eval_expr()         遞迴求值各種運算式節點，回傳整數結果。
+
+控制流程實作：
+  break、continue、return 均以 Python 例外（BreakException、ContinueException、
+  ReturnException）傳遞，由對應的迴圈或函式呼叫點捕捉處理。
+
+與其他模組的關係：
+  - Parser    → 提供 AST 節點定義
+  - Memory    → 所有數值的實際儲存與讀寫
+  - SymbolTable → 管理變數名稱與記憶體位址的對映
+  - Builtins  → 處理內建函式呼叫
+
+Usage:
+    interp = Interpreter()
+    interp.execute(parser.parse())   # 執行完整程式
+"""
+
 from parser import (
     Program, FuncDef, VarDecl, ArrayDecl, Block,
     IfStmt, WhileStmt, DoWhileStmt, ForStmt,
@@ -10,49 +36,119 @@ from symtable import SymbolTable
 from memory import Memory
 from builtins_funcs import Builtins
 
-# ----- 控制流例外 -----
+
+# ─────────────────────────────────────────────
+# 控制流程例外
+# ─────────────────────────────────────────────
+
 class BreakException(Exception):
-    pass
+    """
+    用於實作 break 陳述式。
+    由 exec_stmt() 在遇到 BreakStmt 節點時拋出，
+    由最近的迴圈執行點（while / do-while / for）捕捉並跳出迴圈。
+    """
+
 
 class ContinueException(Exception):
-    pass
+    """
+    用於實作 continue 陳述式。
+    由 exec_stmt() 在遇到 ContinueStmt 節點時拋出，
+    由最近的迴圈執行點捕捉並跳至下一次迭代。
+    """
+
 
 class ReturnException(Exception):
+    """
+    用於實作 return 陳述式。
+    由 exec_stmt() 在遇到 Return 節點時拋出，
+    由 call_function() 捕捉並取得函式的回傳值。
+
+    Attributes:
+        value (int): 函式的回傳值。
+    """
     def __init__(self, value):
         self.value = value
 
-# ----- Interpreter -----
+
+# ─────────────────────────────────────────────
+# 直譯器主體
+# ─────────────────────────────────────────────
+
 class Interpreter:
+    """
+    Small-C 樹狀走訪直譯器。
+
+    持有執行期間所需的所有共用資源（Memory、SymbolTable、Builtins），
+    並提供兩種執行入口：完整程式模式（execute）與互動片段模式（execute_interactive）。
+
+    Attributes:
+        memory    (Memory):      直譯器共用的記憶體空間。
+        symtable  (SymbolTable): 管理所有作用域中的變數符號。
+        builtins  (Builtins):    內建函式的實作集合。
+        functions (dict):        使用者定義的函式表，格式為 {name: FuncDef}。
+        trace     (bool):        是否啟用 TRACE 模式，啟用時每執行一個節點會印出追蹤資訊。
+    """
+
     def __init__(self):
+        """初始化直譯器，建立空的執行環境。"""
         self.memory = Memory()
         self.symtable = SymbolTable(self.memory)
         self.builtins = Builtins(self.memory)
-        self.functions = {}   # name -> FuncDef AST node
-        self.trace = False    # TRACE ON/OFF
+        self.functions = {}
+        self.trace = False
 
     def reset(self):
+        """
+        清除所有執行狀態，回到初始環境。
+        在 NEW 指令清空緩衝區或 RUN 指令重新執行程式前呼叫。
+        """
         self.memory.reset()
         self.symtable.reset()
         self.functions = {}
         self.trace = False
 
-    # ----- 執行入口 -----
-    def execute(self, program):
-        """執行整個 Program（檔案模式或 RUN 指令）"""
-        # 第一遍：收集函式定義和全域變數
+    # ── 執行入口 ──────────────────────────────────
+
+    def execute(self, program: Program):
+        """
+        執行完整的 Small-C 程式（對應 RUN 指令或載入檔案後執行）。
+
+        執行分為兩遍：
+          第一遍：掃描所有頂層宣告，將函式定義存入 functions，
+                 並對全域變數宣告進行配置與初始化。
+          第二遍：呼叫 main() 函式開始實際執行。
+
+        Args:
+            program (Program): Parser 產生的 AST 根節點。
+
+        Returns:
+            int: main() 函式的回傳值。
+
+        Raises:
+            RuntimeError: 程式中未定義 main() 函式時。
+        """
         for decl in program.decls:
             if isinstance(decl, FuncDef):
                 self.functions[decl.name] = decl
             elif isinstance(decl, (VarDecl, ArrayDecl)):
                 self.exec_decl(decl)
 
-        # 第二遍：執行 main
         if 'main' not in self.functions:
             raise RuntimeError("No main() function defined")
         return self.call_function('main', [])
 
-    def execute_interactive(self, program):
-        """互動模式：直接執行片段，不需要 main"""
+    def execute_interactive(self, program: Program):
+        """
+        在互動模式下執行 AST 片段（對應 REPL 中直接輸入的運算式或陳述式）。
+
+        與 execute() 的差別在於不需要 main()：
+          - 遇到 FuncDef → 存入 functions 供後續呼叫
+          - 遇到 VarDecl / ArrayDecl → 宣告為全域變數
+          - 其他陳述式 / 運算式 → 直接執行
+
+        Args:
+            program (Program): Parser 產生的 AST 根節點。
+        """
         for decl in program.decls:
             if isinstance(decl, FuncDef):
                 self.functions[decl.name] = decl
@@ -61,8 +157,18 @@ class Interpreter:
             else:
                 self.exec_stmt(decl)
 
-    # ----- 宣告 -----
+    # ── 宣告執行 ──────────────────────────────────
+
     def exec_decl(self, node):
+        """
+        執行變數或陣列宣告，在符號表中建立符號並完成初始化。
+
+        VarDecl：配置 1 個單元，若有初始化運算式則求值後寫入。
+        ArrayDecl：配置連續空間，若有初始化列表則依序求值後寫入。
+
+        Args:
+            node (VarDecl | ArrayDecl): 宣告節點。
+        """
         if isinstance(node, VarDecl):
             symbol = self.symtable.declare(node.name, node.var_type, node.is_pointer)
             if node.value is not None:
@@ -80,8 +186,29 @@ class Interpreter:
                     else:
                         self.memory.write(symbol.addr + i, val)
 
-    # ----- 語句執行 -----
+    # ── 陳述式執行 ────────────────────────────────
+
     def exec_stmt(self, node):
+        """
+        遞迴執行單一陳述式節點。
+
+        若 TRACE 模式啟用，每次執行前會先印出節點的字串表示。
+
+        支援的節點類型：
+          VarDecl / ArrayDecl → 轉交 exec_decl()
+          Block               → 依序執行所有子陳述式
+          IfStmt              → 求值條件後執行對應分支
+          WhileStmt           → 條件迴圈，捕捉 Break / Continue 例外
+          DoWhileStmt         → 先執行主體再判斷條件，捕捉 Break / Continue 例外
+          ForStmt             → 含 init / condition / update 的完整 for 迴圈
+          Return              → 求值後拋出 ReturnException
+          BreakStmt           → 拋出 BreakException
+          ContinueStmt        → 拋出 ContinueException
+          其他（運算式節點）   → 轉交 eval_expr() 求值（忽略回傳值）
+
+        Args:
+            node (Stmt): 要執行的陳述式節點。
+        """
         if self.trace:
             print(f"[trace] {node}")
 
@@ -145,11 +272,36 @@ class Interpreter:
             raise ContinueException()
 
         else:
-            # 表達式語句
             self.eval_expr(node)
 
-    # ----- 表達式求值 -----
-    def eval_expr(self, node):
+    # ── 運算式求值 ────────────────────────────────
+
+    def eval_expr(self, node) -> int:
+        """
+        遞迴求值單一運算式節點，回傳整數結果。
+
+        各節點類型的求值行為：
+          Number        → 直接回傳整數字面量
+          Char          → 回傳字元的 ASCII 碼
+          StringLiteral → 將字串寫入 Memory，回傳起始位址
+          Identifier    → 從符號表查詢並讀取變數值
+          BinOp         → 轉交 eval_binop()
+          UnaryOp       → 轉交 eval_unaryop()
+          Assignment    → 轉交 eval_assignment()
+          Call          → 轉交 eval_call()
+          AddressOf     → 轉交 eval_addressof()，回傳變數的 Memory 位址
+          Deref         → 解參考指標，從指標所指位址讀取值
+          ArrayAccess   → 計算元素位址並讀取，越界時拋出例外
+
+        Args:
+            node (Expr): 要求值的運算式節點。
+
+        Returns:
+            int: 運算式的求值結果。
+
+        Raises:
+            RuntimeError: 遇到未知的 AST 節點類型，或陣列存取越界時。
+        """
         if isinstance(node, Number):
             return node.value
 
@@ -187,14 +339,36 @@ class Interpreter:
             symbol = self.symtable.lookup(node.array.name)
             index = self.eval_expr(node.index)
             if index < 0 or index >= symbol.array_size:
-                raise RuntimeError(f"Array index out of bounds (index {index}, size {symbol.array_size})")
+                raise RuntimeError(
+                    f"Array index out of bounds (index {index}, size {symbol.array_size})"
+                )
             return self.memory.read(symbol.addr + index)
 
         raise RuntimeError(f"Unknown AST node: {type(node)}")
 
-    # ----- BinOp -----
-    def eval_binop(self, node):
-        # 短路求值
+    # ── 二元運算式 ────────────────────────────────
+
+    def eval_binop(self, node: BinOp) -> int:
+        """
+        求值二元運算式。
+
+        AND / OR 採用短路求值（short-circuit evaluation）：
+          AND：左側為假時不求值右側，直接回傳 0。
+          OR：左側為真時不求值右側，直接回傳 1。
+
+        其餘運算子先求值左右兩側，再依運算子類型計算結果。
+        算術與位元運算結果均截斷為 32 位元有號整數。
+        DIV 與 MOD 在除數為 0 時拋出執行期例外。
+
+        Args:
+            node (BinOp): 二元運算式節點。
+
+        Returns:
+            int: 運算結果（比較運算子回傳 0 或 1）。
+
+        Raises:
+            RuntimeError: 除數為 0，或遇到未知運算子時。
+        """
         if node.op == "AND":
             return 1 if (self.eval_expr(node.left) and self.eval_expr(node.right)) else 0
         if node.op == "OR":
@@ -202,8 +376,8 @@ class Interpreter:
 
         left = self.eval_expr(node.left)
         right = self.eval_expr(node.right)
-
         op = node.op
+
         if op == "PLUS":    return self._int32(left + right)
         if op == "MINUS":   return self._int32(left - right)
         if op == "MUL":     return self._int32(left * right)
@@ -229,8 +403,29 @@ class Interpreter:
 
         raise RuntimeError(f"Unknown binary operator: {op}")
 
-    # ----- UnaryOp -----
-    def eval_unaryop(self, node):
+    # ── 一元運算式 ────────────────────────────────
+
+    def eval_unaryop(self, node: UnaryOp) -> int:
+        """
+        求值一元前置運算式。
+
+        支援的運算子：
+          MINUS   → 取負值（截斷為 32 位元）
+          PLUS    → 不改變值
+          NOT     → 邏輯非（0 → 1，非 0 → 0）
+          BIT_NOT → 位元反相（截斷為 32 位元）
+          INC     → 前置遞增（++x），修改目標並回傳新值
+          DEC     → 前置遞減（--x），修改目標並回傳新值
+
+        Args:
+            node (UnaryOp): 一元運算式節點。
+
+        Returns:
+            int: 運算結果。
+
+        Raises:
+            RuntimeError: 遇到未知運算子時。
+        """
         op = node.op
         if op == "MINUS":
             return self._int32(-self.eval_expr(node.operand))
@@ -247,7 +442,25 @@ class Interpreter:
 
         raise RuntimeError(f"Unknown unary operator: {op}")
 
-    def eval_inc_dec(self, target, delta):
+    def eval_inc_dec(self, target, delta: int) -> int:
+        """
+        執行前置遞增（++）或遞減（--），修改目標並回傳修改後的新值。
+
+        支援三種左值目標：
+          Identifier  → 透過符號表讀寫
+          Deref       → 透過指標位址讀寫 Memory
+          ArrayAccess → 計算元素位址後讀寫 Memory
+
+        Args:
+            target (Expr): 要修改的左值節點。
+            delta  (int):  遞增為 +1，遞減為 -1。
+
+        Returns:
+            int: 修改後的新值。
+
+        Raises:
+            RuntimeError: 目標不是合法的左值時。
+        """
         if isinstance(target, Identifier):
             val = self.symtable.get_value(target.name)
             self.symtable.set_value(target.name, val + delta)
@@ -266,27 +479,60 @@ class Interpreter:
             return val + delta
         raise RuntimeError("Invalid increment/decrement target")
 
-    # ----- Assignment -----
-    def eval_assignment(self, node):
+    # ── 賦值運算式 ────────────────────────────────
+
+    def eval_assignment(self, node: Assignment) -> int:
+        """
+        執行賦值或複合賦值運算式，將結果寫入左值後回傳。
+
+        一般賦值（ASSIGN）：直接將右值求值後寫入目標。
+        複合賦值（ADD_ASSIGN 等）：先讀取目標舊值，與右值運算後再寫回。
+        DIV_ASSIGN / MOD_ASSIGN 在除數為 0 時拋出例外。
+
+        Args:
+            node (Assignment): 賦值運算式節點。
+
+        Returns:
+            int: 賦值後的新值。
+
+        Raises:
+            RuntimeError: 複合賦值中除數為 0，或目標不是合法左值時。
+        """
         val = self.eval_expr(node.value)
 
-        # 複合指定運算子先取舊值
         if node.op != "ASSIGN":
             old = self.eval_lvalue_read(node.target)
-            if node.op == "ADD_ASSIGN": val = self._int32(old + val)
-            elif node.op == "SUB_ASSIGN": val = self._int32(old - val)
-            elif node.op == "MUL_ASSIGN": val = self._int32(old * val)
+            if node.op == "ADD_ASSIGN":
+                val = self._int32(old + val)
+            elif node.op == "SUB_ASSIGN":
+                val = self._int32(old - val)
+            elif node.op == "MUL_ASSIGN":
+                val = self._int32(old * val)
             elif node.op == "DIV_ASSIGN":
-                if val == 0: raise RuntimeError("Runtime error: division by zero")
+                if val == 0:
+                    raise RuntimeError("Runtime error: division by zero")
                 val = self._int32(int(old / val))
             elif node.op == "MOD_ASSIGN":
-                if val == 0: raise RuntimeError("Runtime error: division by zero")
+                if val == 0:
+                    raise RuntimeError("Runtime error: division by zero")
                 val = self._int32(old % val)
 
         self.eval_lvalue_write(node.target, val)
         return val
 
-    def eval_lvalue_read(self, node):
+    def eval_lvalue_read(self, node) -> int:
+        """
+        從左值節點讀取目前的值（供複合賦值使用）。
+
+        Args:
+            node (Expr): 左值節點（Identifier / Deref / ArrayAccess）。
+
+        Returns:
+            int: 目前儲存的值。
+
+        Raises:
+            RuntimeError: 節點不是合法的左值時。
+        """
         if isinstance(node, Identifier):
             return self.symtable.get_value(node.name)
         if isinstance(node, Deref):
@@ -298,7 +544,20 @@ class Interpreter:
             return self.memory.read(symbol.addr + index)
         raise RuntimeError("Invalid assignment target")
 
-    def eval_lvalue_write(self, node, val):
+    def eval_lvalue_write(self, node, val: int):
+        """
+        將值寫入左值節點對應的 Memory 位址。
+
+        char 型別的陣列元素使用 write_char()（8 位元截斷），
+        其餘使用 write()（32 位元截斷）。
+
+        Args:
+            node (Expr): 左值節點（Identifier / Deref / ArrayAccess）。
+            val  (int):  要寫入的值。
+
+        Raises:
+            RuntimeError: 陣列存取越界，或節點不是合法的左值時。
+        """
         if isinstance(node, Identifier):
             self.symtable.set_value(node.name, val)
         elif isinstance(node, Deref):
@@ -308,7 +567,9 @@ class Interpreter:
             symbol = self.symtable.lookup(node.array.name)
             index = self.eval_expr(node.index)
             if index < 0 or index >= symbol.array_size:
-                raise RuntimeError(f"Array index out of bounds (index {index}, size {symbol.array_size})")
+                raise RuntimeError(
+                    f"Array index out of bounds (index {index}, size {symbol.array_size})"
+                )
             if symbol.var_type == 'char':
                 self.memory.write_char(symbol.addr + index, val)
             else:
@@ -316,8 +577,21 @@ class Interpreter:
         else:
             raise RuntimeError("Invalid assignment target")
 
-    # ----- Call -----
-    def eval_call(self, node):
+    # ── 函式呼叫 ──────────────────────────────────
+
+    def eval_call(self, node: Call) -> int:
+        """
+        求值函式呼叫運算式。
+
+        先判斷是否為內建函式（交給 Builtins 處理），
+        否則查詢 functions 字典並呼叫使用者定義函式。
+
+        Args:
+            node (Call): 函式呼叫節點。
+
+        Returns:
+            int: 函式的回傳值。
+        """
         name = node.name.name
         args = [self.eval_expr(a) for a in node.args]
 
@@ -326,7 +600,26 @@ class Interpreter:
 
         return self.call_function(name, args)
 
-    def call_function(self, name, args):
+    def call_function(self, name: str, args: list) -> int:
+        """
+        呼叫使用者定義的函式。
+
+        執行步驟：
+          1. 記錄目前的 heap_top，用於函式返回後釋放區域變數。
+          2. push 新的作用域並將引數綁定為參數變數。
+          3. 執行函式主體，捕捉 ReturnException 取得回傳值。
+          4. pop 作用域，並將 heap_top 回退到步驟 1 記錄的位址。
+
+        Args:
+            name (str):   函式名稱。
+            args (list):  已求值的引數列表（整數）。
+
+        Returns:
+            int: 函式的回傳值；無 return 陳述式時回傳 0。
+
+        Raises:
+            RuntimeError: 函式名稱未定義時。
+        """
         if name not in self.functions:
             raise RuntimeError(f"Undefined function '{name}'")
         func = self.functions[name]
@@ -334,7 +627,6 @@ class Interpreter:
         save_top = self.memory.heap_top
         self.symtable.push_scope()
 
-        # 綁定參數
         for param, arg in zip(func.params, args):
             symbol = self.symtable.declare(param.name, param.var_type, param.is_pointer)
             self.symtable.set_value(param.name, arg)
@@ -349,8 +641,21 @@ class Interpreter:
         self.memory.free_to(save_top)
         return ret_val
 
-    # ----- AddressOf -----
-    def eval_addressof(self, node):
+    # ── 取址運算式 ────────────────────────────────
+
+    def eval_addressof(self, node: AddressOf) -> int:
+        """
+        求值取址運算式（&x 或 &arr[i]），回傳目標的 Memory 位址。
+
+        Args:
+            node (AddressOf): 取址運算式節點。
+
+        Returns:
+            int: 目標變數或陣列元素的 Memory 位址。
+
+        Raises:
+            RuntimeError: 目標不是合法的可取址對象時。
+        """
         target = node.target
         if isinstance(target, Identifier):
             return self.symtable.lookup(target.name).addr
@@ -360,8 +665,18 @@ class Interpreter:
             return symbol.addr + index
         raise RuntimeError("Invalid & target")
 
-    # ----- 工具 -----
-    def _int32(self, value):
-        """截斷為 32 位元有號整數"""
+    # ── 工具方法 ──────────────────────────────────
+
+    def _int32(self, value: int) -> int:
+        """
+        將任意整數截斷為 32 位元有號整數範圍（-2^31 ～ 2^31-1）。
+        所有算術與位元運算的結果均經過此函式處理，模擬 C 的 int 溢位行為。
+
+        Args:
+            value (int): 要截斷的整數值。
+
+        Returns:
+            int: 截斷後的 32 位元有號整數。
+        """
         value = int(value)
         return ((value + 2**31) % 2**32) - 2**31
