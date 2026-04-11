@@ -40,30 +40,14 @@ class Builtins:
 
     def __init__(self, memory):
         """
-        初始化內建函式庫。
+        初始化內建函式庫，並建立函式名稱→實作方法的分派表。
 
         Args:
             memory (Memory): 直譯器共用的記憶體物件。
         """
         self.memory = memory
-
-    # ── 統一呼叫介面 ──────────────────────────────
-
-    def call(self, name: str, args: list):
-        """
-        依函式名稱分派並執行對應的內建函式。
-
-        Args:
-            name (str):   內建函式名稱，例如 'printf'、'strlen'。
-            args (list):  已求值的引數列表（整數或記憶體位址）。
-
-        Returns:
-            int: 函式的回傳值（無回傳值的函式回傳 0）。
-
-        Raises:
-            RuntimeError: 函式名稱不在內建清單中時。
-        """
-        dispatch = {
+        # 分派表：集中管理所有內建函式，避免 call() 與 is_builtin() 各維護一份清單
+        self._dispatch = {
             'printf':      self._printf,
             'putchar':     self._putchar,
             'getchar':     self._getchar,
@@ -88,14 +72,47 @@ class Builtins:
             'itoa':        self._itoa,
             'exit':        self._exit,
         }
-        if name not in dispatch:
+
+    # ── 統一呼叫介面 ──────────────────────────────
+
+    @staticmethod
+    def _int32(value: int) -> int:
+        """
+        截斷為 32 位元有號整數範圍（-2^31 ～ 2^31-1）。
+        供內建函式在回傳前統一截斷，模擬 C 的 int 溢位行為。
+
+        Args:
+            value (int): 要截斷的整數值。
+
+        Returns:
+            int: 截斷後的 32 位元有號整數。
+        """
+        value = int(value)
+        return ((value + 2**31) % 2**32) - 2**31
+
+    def call(self, name: str, args: list):
+        """
+        依函式名稱分派並執行對應的內建函式。
+
+        Args:
+            name (str):   內建函式名稱，例如 'printf'、'strlen'。
+            args (list):  已求值的引數列表（整數或記憶體位址）。
+
+        Returns:
+            int: 函式的回傳值（無回傳值的函式回傳 0）。
+
+        Raises:
+            RuntimeError: 函式名稱不在內建清單中時。
+        """
+        if name not in self._dispatch:
             raise RuntimeError(f"Unknown builtin function '{name}'")
-        return dispatch[name](args)
+        return self._dispatch[name](args)
 
     def is_builtin(self, name: str) -> bool:
         """
         判斷指定名稱是否為內建函式。
         供直譯器在解析函式呼叫時優先判斷，避免誤當使用者定義函式處理。
+        直接查詢 _dispatch，不重複維護獨立的名稱集合。
 
         Args:
             name (str): 函式名稱。
@@ -103,13 +120,7 @@ class Builtins:
         Returns:
             bool: 是內建函式則為 True。
         """
-        return name in {
-            'printf', 'putchar', 'getchar', 'puts', 'scanf',
-            'strlen', 'strcpy', 'strcmp', 'strcat',
-            'abs', 'max', 'min', 'pow', 'sqrt', 'mod',
-            'rand', 'srand', 'memset', 'sizeof_int', 'sizeof_char',
-            'atoi', 'itoa', 'exit',
-        }
+        return name in self._dispatch
 
     # ── I/O 輸入輸出 ──────────────────────────────
 
@@ -223,8 +234,8 @@ class Builtins:
         args[1+]: 各變數的 Memory 位址（用於寫回讀取到的值）。
 
         支援的格式符號：
-          %d → 讀取整數，寫入對應位址
-          %c → 讀取單一字元，以 write_char 寫入對應位址
+          %d → 呼叫 input() 讀取一行並解析為整數，寫入對應位址
+          %c → 從 stdin 讀取單一字元，以 write_char 寫入對應位址
 
         Returns:
             int: 成功讀取的項目數量。
@@ -242,8 +253,8 @@ class Builtins:
                     if arg_idx >= len(args):
                         raise RuntimeError("scanf: not enough arguments")
                     try:
-                        val = int(input() if i == 0 else sys.stdin.readline().strip())
-                    except ValueError:
+                        val = int(input().strip())
+                    except (ValueError, EOFError):
                         return count
                     self.memory.write(int(args[arg_idx]), val)
                     arg_idx += 1
@@ -343,7 +354,8 @@ class Builtins:
         """
         if not args:
             raise RuntimeError("abs: missing argument")
-        return abs(int(args[0]))
+        # 截斷為 32-bit：abs(INT_MIN) 在 C 中為未定義行為，此處採 wrap-around 語意
+        return self._int32(abs(int(args[0])))
 
     def _max(self, args):
         """
@@ -387,7 +399,7 @@ class Builtins:
         base, exp = int(args[0]), int(args[1])
         if exp < 0:
             return 0
-        return int(base ** exp)
+        return self._int32(int(base ** exp))
 
     def _sqrt(self, args):
         """
@@ -405,7 +417,7 @@ class Builtins:
             raise RuntimeError("sqrt: missing argument")
         x = int(args[0])
         if x < 0:
-            raise RuntimeError("sqrt: argument must be non-negative")
+            raise RuntimeError("Runtime error: sqrt() argument must be non-negative.")
         return int(math.isqrt(x))
 
     def _mod(self, args):
@@ -426,7 +438,8 @@ class Builtins:
         a, b = int(args[0]), int(args[1])
         if b == 0:
             raise RuntimeError("mod: division by zero")
-        return a % b
+        # C 語意：截斷除法，餘數符號與被除數相同（不同於 Python 的 floor 除法）
+        return self._int32(a - int(a / b) * b)
 
     def _rand(self, args):
         """

@@ -498,7 +498,7 @@ class REPL:
             parser = Parser(source)
             program = parser.parse()
             ret = self.interpreter.execute(program)
-            if ret is not None:
+            if ret:
                 print(f"Program exited with return value {ret}.")
         except SystemExit as e:
             print(f"Program exited with return value {e.code}.")
@@ -604,7 +604,9 @@ class REPL:
                     f"{p.var_type} {'*' if p.is_pointer else ''}{p.name}"
                     for p in func.params
                 )
-                print(f"  {func.ret_type} {name}({params})")
+                star = '*' if getattr(func, 'is_pointer', False) else ''
+                line_info = f"    line {func.line}" if getattr(func, 'line', 0) else ''
+                print(f"  {func.ret_type} {star}{name}({params}){line_info}")
 
         print("  --- built-in functions ---")
         builtins_list = [
@@ -697,8 +699,9 @@ class REPL:
         print(details.get(cmd, f"No detailed help for '{cmd}'."))
 
     def cmd_about(self):
-        """顯示直譯器的名稱、版本與學期資訊。"""
+        """顯示直譯器的名稱、版本、作者與學期資訊。"""
         print("Small-C Interactive Interpreter v1.0")
+        print("作者：Yubo Lin")
         print("System Software Final Project, Spring 2026")
 
     def cmd_quit(self):

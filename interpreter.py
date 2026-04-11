@@ -180,6 +180,8 @@ class Interpreter:
             symbol = self.symtable.declare_array(node.name, node.var_type, size)
             if node.value is not None:
                 for i, v in enumerate(node.value):
+                    if i >= size:
+                        break  # 初始值數量超過陣列大小，忽略多餘的部分
                     val = self.eval_expr(v)
                     if node.var_type == 'char':
                         self.memory.write_char(symbol.addr + i, val)
@@ -211,7 +213,8 @@ class Interpreter:
             node (Stmt): 要執行的陳述式節點。
         """
         if self.trace:
-            print(f"[trace] {node}")
+            line = getattr(node, 'line', '?')
+            print(f"[line {line}] {node}")
 
         if isinstance(node, (VarDecl, ArrayDecl)):
             self.exec_decl(node)
@@ -271,24 +274,29 @@ class Interpreter:
         
         elif isinstance(node, SwitchStmt):
             val = self.eval_expr(node.expr)
-            # 尋找匹配的 case
-            matched = False
-            for case_val, case_stmts in node.cases:
-                if not matched and case_val != val:
-                    continue
-                matched = True
-                try:
+
+            # 第一遍：找出第一個匹配 case 的索引，並記錄 default 的索引
+            start_idx = None
+            default_idx = None
+            for i, (item_val, _) in enumerate(node.items):
+                if item_val is None:
+                    default_idx = i          # 記錄 default 在列表中的位置
+                elif item_val == val and start_idx is None:
+                    start_idx = i            # 記錄第一個匹配 case 的位置
+
+            # 若無匹配 case，從 default 位置開始（若存在）
+            if start_idx is None:
+                start_idx = default_idx
+            if start_idx is None:
+                return  # 無匹配且無 default，跳過整個 switch
+
+            # 從匹配位置依序執行，支援完整 fall-through（含 fall-through 至 default）
+            try:
+                for _, case_stmts in node.items[start_idx:]:
                     for stmt in case_stmts:
                         self.exec_stmt(stmt)
-                except BreakException:
-                    return
-            # 若無匹配的 case 或 fall-through 到底，執行 default
-            if not matched and node.default is not None:
-                try:
-                    for stmt in node.default:
-                        self.exec_stmt(stmt)
-                except BreakException:
-                    return
+            except BreakException:
+                return
 
         elif isinstance(node, ContinueStmt):
             raise ContinueException()
@@ -364,7 +372,8 @@ class Interpreter:
             index = self.eval_expr(node.index)
             if index < 0 or index >= symbol.array_size:
                 raise RuntimeError(
-                    f"Array index out of bounds (index {index}, size {symbol.array_size})"
+                    f"Runtime error: array index out of bounds "
+                    f"(index {index}, size {symbol.array_size})."
                 )
             return self.memory.read(symbol.addr + index)
 
@@ -407,12 +416,13 @@ class Interpreter:
         if op == "MUL":     return self._int32(left * right)
         if op == "DIV":
             if right == 0:
-                raise RuntimeError("Runtime error: division by zero")
+                raise RuntimeError("Runtime error: division by zero.")
             return self._int32(int(left / right))
         if op == "MOD":
             if right == 0:
-                raise RuntimeError("Runtime error: division by zero")
-            return self._int32(left % right)
+                raise RuntimeError("Runtime error: division by zero.")
+            # C 語意：截斷除法，餘數符號與被除數相同（不同於 Python 的 floor 除法）
+            return self._int32(left - int(left / right) * right)
         if op == "EQ":      return 1 if left == right else 0
         if op == "NEQ":     return 1 if left != right else 0
         if op == "LT":      return 1 if left < right else 0
@@ -487,21 +497,32 @@ class Interpreter:
         """
         if isinstance(target, Identifier):
             val = self.symtable.get_value(target.name)
-            self.symtable.set_value(target.name, val + delta)
-            return val + delta
+            new_val = self._int32(val + delta)
+            self.symtable.set_value(target.name, new_val)
+            return new_val
         if isinstance(target, Deref):
             addr = self.eval_expr(target.pointer)
             val = self.memory.read(addr)
-            self.memory.write(addr, val + delta)
-            return val + delta
+            new_val = self._int32(val + delta)
+            self.memory.write(addr, new_val)
+            return new_val
         if isinstance(target, ArrayAccess):
             symbol = self.symtable.lookup(target.array.name)
             index = self.eval_expr(target.index)
+            if index < 0 or index >= symbol.array_size:
+                raise RuntimeError(
+                    f"Runtime error: array index out of bounds "
+                    f"(index {index}, size {symbol.array_size})."
+                )
             addr = symbol.addr + index
             val = self.memory.read(addr)
-            self.memory.write(addr, val + delta)
-            return val + delta
-        raise RuntimeError("Invalid increment/decrement target")
+            new_val = self._int32(val + delta)
+            if symbol.var_type == 'char':
+                self.memory.write_char(addr, new_val)
+            else:
+                self.memory.write(addr, new_val)
+            return new_val
+        raise RuntimeError("Runtime error: invalid increment/decrement target.")
 
     # ── 賦值運算式 ────────────────────────────────
 
@@ -534,12 +555,13 @@ class Interpreter:
                 val = self._int32(old * val)
             elif node.op == "DIV_ASSIGN":
                 if val == 0:
-                    raise RuntimeError("Runtime error: division by zero")
+                    raise RuntimeError("Runtime error: division by zero.")
                 val = self._int32(int(old / val))
             elif node.op == "MOD_ASSIGN":
                 if val == 0:
-                    raise RuntimeError("Runtime error: division by zero")
-                val = self._int32(old % val)
+                    raise RuntimeError("Runtime error: division by zero.")
+                # C 語意：截斷除法，餘數符號與被除數相同
+                val = self._int32(old - int(old / val) * val)
 
         self.eval_lvalue_write(node.target, val)
         return val
@@ -594,7 +616,8 @@ class Interpreter:
             index = self.eval_expr(node.index)
             if index < 0 or index >= symbol.array_size:
                 raise RuntimeError(
-                    f"Array index out of bounds (index {index}, size {symbol.array_size})"
+                    f"Runtime error: array index out of bounds "
+                    f"(index {index}, size {symbol.array_size})."
                 )
             if symbol.var_type == 'char':
                 self.memory.write_char(symbol.addr + index, val)
@@ -649,6 +672,12 @@ class Interpreter:
         if name not in self.functions:
             raise RuntimeError(f"Undefined function '{name}'")
         func = self.functions[name]
+
+        if len(args) != len(func.params):
+            raise RuntimeError(
+                f"Runtime error: function '{name}' expects "
+                f"{len(func.params)} argument(s), got {len(args)}."
+            )
 
         save_top = self.memory.heap_top
         self.symtable.push_scope()

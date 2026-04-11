@@ -59,10 +59,10 @@ class Memory:
         Raises:
             RuntimeError: 剩餘空間不足時。
         """
+        if self.heap_top + size > len(self.data):
+            raise RuntimeError("Out of memory")
         addr = self.heap_top
         self.heap_top += size
-        if self.heap_top > len(self.data):
-            raise RuntimeError("Out of memory")
         return addr
 
     def free_to(self, addr: int):
@@ -150,7 +150,7 @@ class Memory:
             ch = self.data[addr]
             if ch == 0:
                 break
-            result += chr(ch)
+            result += chr(ch & 0xFF)  # 負值字元（有號 8-bit）轉換為合法 Unicode 碼位
             addr += 1
         return result
 

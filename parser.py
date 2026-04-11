@@ -229,6 +229,7 @@ class Assignment(Expr):
 
 class Stmt(AST):
     """所有陳述式節點的基底類別。"""
+    line = 0  # 節點在原始碼中的行號，由 Parser 在解析時設定
 
 
 class VarDecl(Stmt):
@@ -384,29 +385,30 @@ class ContinueStmt(Stmt):
 
     def __repr__(self):
         return "ContinueStmt()"
-    
+
+
 class SwitchStmt(Stmt):
     """
     switch/case 條件分支陳述式。
 
     依據運算式的值，跳轉至對應的 case 標籤執行，
     若無匹配的 case 則執行 default 分支（若存在）。
-    各 case 之間支援 fall-through，遇到 break 時跳出整個 switch。
+    各分支依原始碼順序儲存，完整支援 fall-through（含 fall-through 至 default）。
+    遇到 break 時跳出整個 switch。
 
     Attributes:
-        expr     (Expr):              switch 的判斷運算式。
-        cases    (list[tuple]):       case 分支列表，每個元素為
-                                      (value: int, stmts: list[Stmt])。
-        default  (list[Stmt] | None): default 分支的陳述式列表；
-                                      若無 default 則為 None。
+        expr  (Expr):        switch 的判斷運算式。
+        items (list[tuple]): 依原始碼順序排列的分支列表，每個元素為
+                             (value, stmts)，其中 value 為整數（case 值）
+                             或 None（代表 default 分支），
+                             stmts 為 list[Stmt]。
     """
-    def __init__(self, expr, cases, default=None):
+    def __init__(self, expr, items):
         self.expr = expr
-        self.cases = cases
-        self.default = default
+        self.items = items  # [(val_or_None, list[Stmt]), ...]
 
     def __repr__(self):
-        return f"SwitchStmt({self.expr}, cases={self.cases}, default={self.default})"
+        return f"SwitchStmt({self.expr}, items={self.items})"
 
 
 class FuncDef(Stmt):
@@ -420,12 +422,13 @@ class FuncDef(Stmt):
         body       (Block):       函式主體。
         is_pointer (bool):        回傳值是否為指標型別（帶有 *）。
     """
-    def __init__(self, ret_type, name, params, body, is_pointer=False):
+    def __init__(self, ret_type, name, params, body, is_pointer=False, line=0):
         self.ret_type = ret_type
         self.name = name
         self.params = params
         self.body = body
         self.is_pointer = is_pointer
+        self.line = line  # 函式定義起始行號，供 FUNCS 指令顯示
 
     def __repr__(self):
         star = '*' if self.is_pointer else ''
@@ -497,14 +500,19 @@ class Parser:
             Exception: Token 類型不符或遇到 ERROR Token 時。
         """
         if self.current_token.kind == "ERROR":
-            raise Exception(f"Line {self.current_token.line}: {self.current_token.value}")
+            raise Exception(
+                f"Lexical error at line {self.current_token.line}: "
+                f"{self.current_token.value}."
+            )
         if self.current_token.kind == kind:
             self.pos += 1
             if self.pos < len(self.tokens):
                 self.current_token = self.tokens[self.pos]
         else:
             raise Exception(
-                f"Line {self.current_token.line}: Expected {kind}, got {self.current_token.kind}"
+                f"Syntax error at line {self.current_token.line}: "
+                f"unexpected token '{self.current_token.value}', "
+                f"expected '{kind}'."
             )
 
     def peek(self):
@@ -618,15 +626,21 @@ class Parser:
         if tok.kind == "BREAK":
             self.eat("BREAK")
             self.eat("SEMI")
-            return BreakStmt()
+            node = BreakStmt()
+            node.line = tok.line
+            return node
         if tok.kind == "CONTINUE":
             self.eat("CONTINUE")
             self.eat("SEMI")
-            return ContinueStmt()
+            node = ContinueStmt()
+            node.line = tok.line
+            return node
         if tok.kind == "LBRACE":
             return self.block()
         # 一般運算式陳述式（以分號結尾）
+        line = tok.line
         expr = self.expr()
+        expr.line = line  # 動態設定行號供 TRACE 使用
         self.eat("SEMI")
         return expr
 
@@ -640,6 +654,7 @@ class Parser:
         Returns:
             Block: 包含區塊內所有陳述式的節點。
         """
+        line = self.current_token.line
         self.eat("LBRACE")
         stmts = []
         while self.current_token.kind not in ("RBRACE", "EOF"):
@@ -648,7 +663,9 @@ class Parser:
             else:
                 stmts.append(self.statement())
         self.eat("RBRACE")
-        return Block(stmts)
+        node = Block(stmts)
+        node.line = line
+        return node
 
     def block_or_stmt(self) -> Block:
         """
@@ -674,6 +691,7 @@ class Parser:
         Returns:
             VarDecl | ArrayDecl: 對應的宣告節點。
         """
+        line = self.current_token.line  # 記錄型別關鍵字的行號
         var_type = self.current_token.value
         self.eat(self.current_token.kind)  # 消耗型別關鍵字（INT / CHAR / VOID）
 
@@ -686,7 +704,7 @@ class Parser:
         self.eat("IDENT")
 
         if self.current_token.kind == "LBRACKET":
-            return self.array_decl(var_type, name)
+            return self.array_decl(var_type, name, line)
 
         value = None
         if self.current_token.kind == "ASSIGN":
@@ -694,9 +712,11 @@ class Parser:
             value = self.expr()
 
         self.eat("SEMI")
-        return VarDecl(var_type, name, value, is_pointer)
+        node = VarDecl(var_type, name, value, is_pointer)
+        node.line = line
+        return node
 
-    def array_decl(self, var_type: str, name: str) -> ArrayDecl:
+    def array_decl(self, var_type: str, name: str, line: int = 0) -> ArrayDecl:
         """
         解析陣列宣告，包含可選的大括號初始化列表。
         呼叫前提：已解析完型別與名稱，目前 Token 為 [。
@@ -704,6 +724,7 @@ class Parser:
         Args:
             var_type (str): 陣列元素的型別名稱。
             name     (str): 陣列名稱。
+            line     (int): 宣告起始行號（由 var_decl 傳入）。
 
         Returns:
             ArrayDecl: 陣列宣告節點。
@@ -725,15 +746,18 @@ class Parser:
             self.eat("RBRACE")
 
         self.eat("SEMI")
-        return ArrayDecl(var_type, name, size, value)
+        node = ArrayDecl(var_type, name, size, value)
+        node.line = line
+        return node
 
     def func_def(self) -> FuncDef:
         """
         解析函式定義，包含回傳型別、名稱、參數列表與主體區塊。
 
         Returns:
-            FuncDef: 函式定義節點。
+            FuncDef: 函式定義節點（含行號，供 FUNCS 指令顯示）。
         """
+        line = self.current_token.line  # 記錄函式定義起始行號
         ret_type = self.current_token.value
         self.eat(self.current_token.kind)  # 消耗回傳型別關鍵字
 
@@ -755,7 +779,7 @@ class Parser:
 
         self.eat("RPAREN")
         body = self.block()
-        return FuncDef(ret_type, name, params, body, is_pointer)
+        return FuncDef(ret_type, name, params, body, is_pointer, line)
 
     def param(self) -> VarDecl:
         """
@@ -783,29 +807,39 @@ class Parser:
 
         語法：
           switch ( expr ) {
-              case <整數常數> : <陳述式>*
+              case <整數或字元常數> : <陳述式>*
               ...
-              default : <陳述式>*   （可省略）
+              default : <陳述式>*   （可省略，可出現在任意位置）
           }
 
-        各 case 的值必須為整數常數（Number 節點）。
-        case 與 default 之間支援 fall-through，
-        遇到 break 時由直譯器負責跳出整個 switch。
+        各分支依原始碼順序儲存於 items 列表，完整支援 fall-through
+        （含 fall-through 至 default）。case 值可為整數字面量（NUMBER）
+        或字元字面量（CHAR）。遇到 break 時由直譯器負責跳出整個 switch。
         """
+        line = self.current_token.line
         self.eat("SWITCH")
         self.eat("LPAREN")
         expr = self.expr()
         self.eat("RPAREN")
         self.eat("LBRACE")
 
-        cases = []    # [(value, [stmts]), ...]
-        default = None
+        items = []  # [(val_or_None, [stmts]), ...] 依原始碼順序排列
 
         while self.current_token.kind not in ("RBRACE", "EOF"):
             if self.current_token.kind == "CASE":
                 self.eat("CASE")
-                val = self.current_token.value
-                self.eat("NUMBER")
+                # case 值：支援整數字面量與字元字面量
+                if self.current_token.kind == "NUMBER":
+                    val = self.current_token.value
+                    self.eat("NUMBER")
+                elif self.current_token.kind == "CHAR":
+                    val = ord(self.current_token.value)
+                    self.eat("CHAR")
+                else:
+                    raise Exception(
+                        f"Syntax error at line {self.current_token.line}: "
+                        f"case value must be an integer or character constant."
+                    )
                 self.eat("COLON")
                 stmts = []
                 while self.current_token.kind not in ("CASE", "DEFAULT", "RBRACE", "EOF"):
@@ -813,7 +847,7 @@ class Parser:
                         stmts.append(self.var_decl())
                     else:
                         stmts.append(self.statement())
-                cases.append((val, stmts))
+                items.append((val, stmts))
 
             elif self.current_token.kind == "DEFAULT":
                 self.eat("DEFAULT")
@@ -824,19 +858,22 @@ class Parser:
                         stmts.append(self.var_decl())
                     else:
                         stmts.append(self.statement())
-                default = stmts
+                items.append((None, stmts))  # None 代表 default 分支
 
             else:
                 raise Exception(
-                    f"Line {self.current_token.line}: "
-                    f"Expected 'case' or 'default' in switch, got {self.current_token.kind}"
+                    f"Syntax error at line {self.current_token.line}: "
+                    f"expected 'case' or 'default' in switch statement."
                 )
 
         self.eat("RBRACE")
-        return SwitchStmt(expr, cases, default)
+        node = SwitchStmt(expr, items)
+        node.line = line
+        return node
 
     def if_stmt(self) -> IfStmt:
         """解析 if / if-else 條件陳述式。"""
+        line = self.current_token.line
         self.eat("IF")
         self.eat("LPAREN")
         cond = self.expr()
@@ -846,19 +883,25 @@ class Parser:
         if self.current_token.kind == "ELSE":
             self.eat("ELSE")
             else_branch = self.block_or_stmt()
-        return IfStmt(cond, then_branch, else_branch)
+        node = IfStmt(cond, then_branch, else_branch)
+        node.line = line
+        return node
 
     def while_stmt(self) -> WhileStmt:
         """解析 while 迴圈陳述式。"""
+        line = self.current_token.line
         self.eat("WHILE")
         self.eat("LPAREN")
         cond = self.expr()
         self.eat("RPAREN")
         body = self.block_or_stmt()
-        return WhileStmt(cond, body)
+        node = WhileStmt(cond, body)
+        node.line = line
+        return node
 
     def do_while_stmt(self) -> DoWhileStmt:
         """解析 do-while 迴圈陳述式。"""
+        line = self.current_token.line
         self.eat("DO")
         body = self.block_or_stmt()
         self.eat("WHILE")
@@ -866,13 +909,16 @@ class Parser:
         cond = self.expr()
         self.eat("RPAREN")
         self.eat("SEMI")
-        return DoWhileStmt(body, cond)
+        node = DoWhileStmt(body, cond)
+        node.line = line
+        return node
 
     def for_stmt(self) -> ForStmt:
         """
         解析 for 迴圈陳述式。
         三個子句（init ; condition ; update）皆可省略。
         """
+        line = self.current_token.line
         self.eat("FOR")
         self.eat("LPAREN")
 
@@ -892,16 +938,21 @@ class Parser:
         self.eat("RPAREN")
 
         body = self.block_or_stmt()
-        return ForStmt(init, condition, update, body)
+        node = ForStmt(init, condition, update, body)
+        node.line = line
+        return node
 
     def return_stmt(self) -> Return:
         """解析 return 陳述式，回傳值可省略（void 函式）。"""
+        line = self.current_token.line
         self.eat("RETURN")
         val = None
         if self.current_token.kind != "SEMI":
             val = self.expr()
         self.eat("SEMI")
-        return Return(val)
+        node = Return(val)
+        node.line = line
+        return node
 
     # ── 運算式（Expressions）── 遞迴下降，由低到高優先序 ──
 
@@ -1107,4 +1158,6 @@ class Parser:
             self.eat("RPAREN")
             return node
 
-        raise Exception(f"Line {tok.line}: Unexpected token {tok.kind}")
+        raise Exception(
+            f"Syntax error at line {tok.line}: unexpected token '{tok.value}'."
+        )
