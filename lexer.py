@@ -91,12 +91,31 @@ def preprocess(source: str) -> str:
     # 逐字元掃描，以手工分詞方式展開巨集
     # 遇到識別字起始字元（字母或底線）時，讀取完整識別字後查表替換；
     # 其他字元（運算子、空白、數字等）原樣輸出，確保不誤觸子字串。
+    # 在字串字面量（"..."）或字元字面量（'...'）內部不做替換，
+    # 並正確處理跳脫字元（\'、\"）以避免誤判引號結束位置。
     out = []
     i = 0
+    in_str = False    # 是否在雙引號字串內
+    in_char = False   # 是否在單引號字元字面量內
     while i < len(result):
         c = result[i]
-        if c.isalpha() or c == '_':
-            # 讀取完整識別字
+        if c == '\\' and (in_str or in_char):
+            # 跳脫序列：原樣輸出兩個字元，不改變引號狀態
+            out.append(c)
+            i += 1
+            if i < len(result):
+                out.append(result[i])
+                i += 1
+        elif c == '"' and not in_char:
+            in_str = not in_str
+            out.append(c)
+            i += 1
+        elif c == "'" and not in_str:
+            in_char = not in_char
+            out.append(c)
+            i += 1
+        elif (c.isalpha() or c == '_') and not in_str and not in_char:
+            # 識別字：僅在字串／字元字面量外才做巨集替換
             j = i
             while j < len(result) and (result[j].isalnum() or result[j] == '_'):
                 j += 1
