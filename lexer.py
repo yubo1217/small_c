@@ -184,7 +184,7 @@ class Lexer:
 
     # ── 基礎游標操作 ─────────────────────────────
 
-    def advance(self):
+    def _advance(self):
         """
         將游標向前移動一個字元。
         若遇到換行符，行號加一；到達字串結尾後 current_char 設為 None。
@@ -194,7 +194,7 @@ class Lexer:
         self.pos += 1
         self.current_char = self.text[self.pos] if self.pos < len(self.text) else None
 
-    def peek(self):
+    def _peek(self):
         """
         預覽下一個字元（不移動游標）。
 
@@ -208,7 +208,7 @@ class Lexer:
 
     # ── 空白與註解跳過 ────────────────────────────
 
-    def skip_whitespace_and_comments(self):
+    def _skip_whitespace_and_comments(self):
         """
         跳過空白字元（空格、Tab、換行）以及 C 風格的單行與多行註解。
 
@@ -220,23 +220,23 @@ class Lexer:
         """
         while self.current_char is not None:
             if self.current_char in ' \t\n':
-                self.advance()
+                self._advance()
 
-            elif self.current_char == '/' and self.peek() == '/':
+            elif self.current_char == '/' and self._peek() == '/':
                 # 單行註解：跳至行尾
                 while self.current_char is not None and self.current_char != '\n':
-                    self.advance()
+                    self._advance()
 
-            elif self.current_char == '/' and self.peek() == '*':
+            elif self.current_char == '/' and self._peek() == '*':
                 # 多行註解：跳過 /* ... */
-                self.advance()  # 跳過 '/'
-                self.advance()  # 跳過 '*'
+                self._advance()  # 跳過 '/'
+                self._advance()  # 跳過 '*'
                 while self.current_char is not None:
-                    if self.current_char == '*' and self.peek() == '/':
-                        self.advance()  # 跳過 '*'
-                        self.advance()  # 跳過 '/'
+                    if self.current_char == '*' and self._peek() == '/':
+                        self._advance()  # 跳過 '*'
+                        self._advance()  # 跳過 '/'
                         break
-                    self.advance()
+                    self._advance()
                 else:
                     # 掃描到結尾都未找到 */，屬於語法錯誤
                     return Token("ERROR", "Unterminated comment", self.line)
@@ -247,7 +247,7 @@ class Lexer:
 
     # ── 字面量解析 ────────────────────────────────
 
-    def character(self):
+    def _character(self):
         """
         解析單引號包圍的字元字面量，例如 'a'、'\\n'。
 
@@ -258,14 +258,14 @@ class Lexer:
                    格式錯誤時回傳 kind='ERROR' 的 Token。
         """
         start_line = self.line
-        self.advance()  # 跳過開頭的 '
+        self._advance()  # 跳過開頭的 '
 
         if self.current_char is None:
             return Token("ERROR", "Unterminated char", start_line)
 
         if self.current_char == '\\':
             # 處理跳脫序列
-            self.advance()
+            self._advance()
             if self.current_char is None:
                 return Token("ERROR", "Unterminated char escape", start_line)
             escapes = {"n": "\n", "t": "\t", "0": "\0", "'": "'", '"': '"', "\\": "\\"}
@@ -276,15 +276,15 @@ class Lexer:
         else:
             value = self.current_char
 
-        self.advance()
+        self._advance()
 
         if self.current_char != "'":
             return Token("ERROR", "Unterminated char literal", start_line)
 
-        self.advance()  # 跳過結尾的 '
+        self._advance()  # 跳過結尾的 '
         return Token("CHAR", value, start_line)
 
-    def string_literal(self):
+    def _string_literal(self):
         """
         解析雙引號包圍的字串字面量，例如 "hello\\n"。
 
@@ -297,11 +297,11 @@ class Lexer:
         """
         value = ""
         start_line = self.line
-        self.advance()  # 跳過開頭的 "
+        self._advance()  # 跳過開頭的 "
 
         while self.current_char is not None:
             if self.current_char == '"':
-                self.advance()  # 跳過結尾的 "
+                self._advance()  # 跳過結尾的 "
                 return Token("STRING", value, start_line)
 
             if self.current_char == '\n':
@@ -309,7 +309,7 @@ class Lexer:
 
             if self.current_char == '\\':
                 # 處理跳脫序列
-                self.advance()
+                self._advance()
                 if self.current_char is None:
                     return Token("ERROR", "Unterminated string escape", start_line)
                 escapes = {"n": "\n", "t": "\t", "0": "\0", "'": "'", '"': '"', "\\": "\\"}
@@ -320,11 +320,11 @@ class Lexer:
             else:
                 value += self.current_char
 
-            self.advance()
+            self._advance()
 
         return Token("ERROR", "Unterminated string literal", start_line)
 
-    def number(self):
+    def _number(self):
         """
         解析整數字面量，支援十進位與十六進位（0x / 0X 前綴）。
 
@@ -340,11 +340,11 @@ class Lexer:
         start_line = self.line
 
         # 十六進位整數
-        if self.current_char == '0' and (self.peek() in ['x', 'X']):
+        if self.current_char == '0' and (self._peek() in ['x', 'X']):
             num_str += self.current_char
-            self.advance()  # 跳過 '0'
+            self._advance()  # 跳過 '0'
             num_str += self.current_char
-            self.advance()  # 跳過 'x'/'X'
+            self._advance()  # 跳過 'x'/'X'
 
             if self.current_char is None or not (
                 self.current_char.isdigit() or 'a' <= self.current_char.lower() <= 'f'
@@ -355,21 +355,21 @@ class Lexer:
                 self.current_char.isdigit() or 'a' <= self.current_char.lower() <= 'f'
             ):
                 num_str += self.current_char
-                self.advance()
+                self._advance()
 
             return Token('NUMBER', int(num_str, 16), start_line)
 
         # 十進位整數
         while self.current_char is not None and self.current_char.isdigit():
             num_str += self.current_char
-            self.advance()
+            self._advance()
 
         if not num_str:
             return Token("ERROR", "Expected number", start_line)
 
         return Token('NUMBER', int(num_str), start_line)
 
-    def identifier(self):
+    def _identifier(self):
         """
         解析識別字或關鍵字。
 
@@ -388,14 +388,14 @@ class Lexer:
             self.current_char.isalnum() or self.current_char == '_'
         ):
             id_str += self.current_char
-            self.advance()
+            self._advance()
 
         kind = self.KEYWORDS.get(id_str, 'IDENT')
         return Token(kind, id_str, start_line)
 
     # ── 主要 Token 取得介面 ───────────────────────
 
-    def get_next_token(self) -> Token:
+    def _get_next_token(self) -> Token:
         """
         從目前游標位置取得下一個 Token。
 
@@ -415,7 +415,7 @@ class Lexer:
         """
         while self.current_char is not None:
             # 跳過空白與註解；若多行註解未閉合，直接回傳錯誤
-            error_token = self.skip_whitespace_and_comments()
+            error_token = self._skip_whitespace_and_comments()
             if error_token is not None:
                 return error_token
 
@@ -423,40 +423,40 @@ class Lexer:
                 return Token('EOF', None, self.line)
 
             if self.current_char == '\'':
-                return self.character()
+                return self._character()
 
             if self.current_char == '\"':
-                return self.string_literal()
+                return self._string_literal()
 
             # 嘗試匹配雙字元運算子（優先於單字元運算子）
-            next_char = self.peek()
+            next_char = self._peek()
             two_char = self.current_char + (next_char if next_char is not None else '')
             if two_char in self.DOUBLE_OPS:
                 token = Token(self.DOUBLE_OPS[two_char], two_char, self.line)
-                self.advance()
-                self.advance()
+                self._advance()
+                self._advance()
                 return token
 
             if self.current_char in self.SINGLE_OPS:
                 token = Token(self.SINGLE_OPS[self.current_char], self.current_char, self.line)
-                self.advance()
+                self._advance()
                 return token
 
             if self.current_char in self.SYMBOLS:
                 token = Token(self.SYMBOLS[self.current_char], self.current_char, self.line)
-                self.advance()
+                self._advance()
                 return token
 
             if '0' <= self.current_char <= '9':
-                return self.number()
+                return self._number()
 
             if self.current_char.isalpha() or self.current_char == '_':
-                return self.identifier()
+                return self._identifier()
 
             # 其他無法識別的字元
             err_line = self.line
             err_char = self.current_char
-            self.advance()
+            self._advance()
             return Token("ERROR", f"Unknown character '{err_char}'", err_line)
 
         return Token('EOF', None, self.line)
@@ -476,7 +476,7 @@ class Lexer:
                 print(token)
         """
         while True:
-            token = self.get_next_token()
+            token = self._get_next_token()
             yield token
             if token.kind == 'EOF':
                 break

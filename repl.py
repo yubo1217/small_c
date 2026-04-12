@@ -163,7 +163,7 @@ class REPL:
         self.modified = False
         self.trace = False
 
-    def is_command(self, line: str) -> bool:
+    def _is_command(self, line: str) -> bool:
         """
         判斷輸入的第一個詞是否為環境指令。
 
@@ -214,8 +214,8 @@ class REPL:
                     collector.feed(line)
                 continue
 
-            if not collector.source and self.is_command(line):
-                self.handle_command(line.strip())
+            if not collector.source and self._is_command(line):
+                self._handle_command(line.strip())
                 continue
 
             collector.feed(line)
@@ -224,11 +224,11 @@ class REPL:
                 source = collector.source.strip()
                 collector.reset()
                 if source:
-                    self.execute_interactive(source)
+                    self._execute_interactive(source)
 
     # ── 互動執行 ──────────────────────────────────
 
-    def execute_interactive(self, source: str):
+    def _execute_interactive(self, source: str):
         """
         對單段原始碼進行前處理、解析並直接執行（互動模式）。
         執行期間的錯誤與程式終止均捕捉後印出訊息，不中斷 REPL 迴圈。
@@ -248,7 +248,7 @@ class REPL:
 
     # ── 環境指令分派 ──────────────────────────────
 
-    def handle_command(self, line: str):
+    def _handle_command(self, line: str):
         """
         解析並分派環境指令到對應的處理方法。
 
@@ -283,7 +283,7 @@ class REPL:
 
     # ── 程式管理指令 ──────────────────────────────
 
-    def cmd_load(self, parts):
+    def _cmd_load(self, parts):
         """
         從檔案載入 Small-C 原始碼到緩衝區。
         若緩衝區有未儲存的修改，會先詢問是否放棄。
@@ -310,7 +310,7 @@ class REPL:
         except Exception as e:
             print(f"Error: {e}")
 
-    def cmd_save(self, parts):
+    def _cmd_save(self, parts):
         """
         將緩衝區內容儲存到指定檔案。
 
@@ -328,7 +328,7 @@ class REPL:
         except Exception as e:
             print(f"Error: {e}")
 
-    def cmd_list(self, parts):
+    def _cmd_list(self, parts):
         """
         列出緩衝區中的指定行或範圍，每行前顯示行號。
 
@@ -360,7 +360,7 @@ class REPL:
             if 1 <= i <= len(self.buffer):
                 print(f"{i:4}: {self.buffer[i - 1]}")
 
-    def cmd_edit(self, parts):
+    def _cmd_edit(self, parts):
         """
         顯示指定行的現有內容並等待使用者輸入新內容取代。
         若使用者直接按 Enter（輸入為空），則保留原始內容不修改。
@@ -384,7 +384,7 @@ class REPL:
             self.buffer[n - 1] = new_line
             self.modified = True
 
-    def cmd_delete(self, parts):
+    def _cmd_delete(self, parts):
         """
         從緩衝區刪除指定行或範圍的行，後續行號自動遞減。
 
@@ -413,7 +413,7 @@ class REPL:
         del self.buffer[start - 1:end]
         self.modified = True
 
-    def cmd_insert(self, parts):
+    def _cmd_insert(self, parts):
         """
         在指定行號前插入一或多行內容，以單獨一行的 '.' 結束輸入。
         插入後，原本該行號以後的所有行號依序遞增。
@@ -445,7 +445,7 @@ class REPL:
         self.buffer[n - 1:n - 1] = insert_lines
         self.modified = True
 
-    def cmd_append(self):
+    def _cmd_append(self):
         """
         在緩衝區末尾追加一或多行內容，以單獨一行的 '.' 結束輸入。
 
@@ -461,7 +461,7 @@ class REPL:
             self.modified = True
             line_num += 1
 
-    def cmd_new(self):
+    def _cmd_new(self):
         """
         清空緩衝區並重置直譯器狀態。
         若有未儲存的修改，會先詢問是否放棄。
@@ -479,7 +479,7 @@ class REPL:
 
     # ── 執行指令 ──────────────────────────────────
 
-    def cmd_run(self):
+    def _cmd_run(self):
         """
         對緩衝區中的完整程式進行前處理、解析並執行。
         執行前會重置直譯器狀態，並套用目前的 TRACE 設定。
@@ -504,7 +504,7 @@ class REPL:
         except Exception as e:
             print(f"Error: {e}")
 
-    def cmd_check(self):
+    def _cmd_check(self):
         """
         對緩衝區中的程式碼進行語法檢查，不實際執行。
         若有語法錯誤，印出所有錯誤訊息與總數；無錯誤時印出確認訊息。
@@ -530,7 +530,7 @@ class REPL:
         else:
             print("No errors found.")
 
-    def cmd_trace(self, parts):
+    def _cmd_trace(self, parts):
         """
         啟用或關閉 TRACE 模式。啟用時，直譯器執行每個 AST 節點前
         會在輸出中印出 [trace] 追蹤資訊，方便除錯。
@@ -552,7 +552,7 @@ class REPL:
         else:
             print("Usage: TRACE ON / TRACE OFF")
 
-    def cmd_vars(self):
+    def _cmd_vars(self):
         """
         顯示目前直譯器中所有全域變數的名稱、型別與數值。
 
@@ -588,7 +588,7 @@ class REPL:
                 else:
                     print(f"  int {name} = {val}")
 
-    def cmd_funcs(self):
+    def _cmd_funcs(self):
         """
         列出目前直譯器中所有已定義的函式（含使用者定義與內建函式）。
 
@@ -638,7 +638,7 @@ class REPL:
 
     # ── 系統工具指令 ──────────────────────────────
 
-    def cmd_help(self, parts):
+    def _cmd_help(self, parts):
         """
         顯示所有可用指令的摘要，或特定指令的詳細說明。
 
@@ -647,7 +647,7 @@ class REPL:
           HELP <cmd>  → 顯示指定指令的詳細說明
         """
         if len(parts) >= 2:
-            self.show_help_detail(parts[1].lower())
+            self._show_help_detail(parts[1].lower())
             return
         print("Available commands:")
         helps = [
@@ -672,7 +672,7 @@ class REPL:
         for cmd, desc in helps:
             print(f"  {cmd:<20} {desc}")
 
-    def show_help_detail(self, cmd: str):
+    def _show_help_detail(self, cmd: str):
         """
         顯示單一指令的詳細說明文字。
 
@@ -697,13 +697,13 @@ class REPL:
         }
         print(details.get(cmd, f"No detailed help for '{cmd}'."))
 
-    def cmd_about(self):
+    def _cmd_about(self):
         """顯示直譯器的名稱、版本、作者與學期資訊。"""
         print("Small-C Interactive Interpreter v1.0")
         print("作者：Yubo Lin")
         print("System Software Final Project, Spring 2026")
 
-    def cmd_quit(self):
+    def _cmd_quit(self):
         """
         退出直譯器。若緩衝區有未儲存的修改，會先詢問是否放棄後再離開。
 

@@ -27,7 +27,7 @@ Usage:
 from parser import (
     Program, FuncDef, VarDecl, ArrayDecl, Block,
     IfStmt, WhileStmt, DoWhileStmt, ForStmt,
-    BreakStmt, ContinueStmt, Return, SwitchStmt,
+    BreakStmt, ContinueStmt, Return, SwitchStmt, ExprStmt,
     BinOp, UnaryOp, Assignment, Call,
     Identifier, Number, Char, StringLiteral,
     AddressOf, Deref, ArrayAccess,
@@ -131,11 +131,11 @@ class Interpreter:
             if isinstance(decl, FuncDef):
                 self.functions[decl.name] = decl
             elif isinstance(decl, (VarDecl, ArrayDecl)):
-                self.exec_decl(decl)
+                self._exec_decl(decl)
 
         if 'main' not in self.functions:
             raise RuntimeError("No main() function defined")
-        return self.call_function('main', [])
+        return self._call_function('main', [])
 
     def execute_interactive(self, program: Program):
         """
@@ -153,13 +153,13 @@ class Interpreter:
             if isinstance(decl, FuncDef):
                 self.functions[decl.name] = decl
             elif isinstance(decl, (VarDecl, ArrayDecl)):
-                self.exec_decl(decl)
+                self._exec_decl(decl)
             else:
-                self.exec_stmt(decl)
+                self._exec_stmt(decl)
 
     # ── 宣告執行 ──────────────────────────────────
 
-    def exec_decl(self, node):
+    def _exec_decl(self, node):
         """
         執行變數或陣列宣告，在符號表中建立符號並完成初始化。
 
@@ -172,17 +172,17 @@ class Interpreter:
         if isinstance(node, VarDecl):
             symbol = self.symtable.declare(node.name, node.var_type, node.is_pointer)
             if node.value is not None:
-                val = self.eval_expr(node.value)
+                val = self._eval_expr(node.value)
                 self.symtable.set_value(node.name, val)
 
         elif isinstance(node, ArrayDecl):
-            size = self.eval_expr(node.size)
+            size = self._eval_expr(node.size)
             symbol = self.symtable.declare_array(node.name, node.var_type, size)
             if node.value is not None:
                 for i, v in enumerate(node.value):
                     if i >= size:
                         break  # 初始值數量超過陣列大小，忽略多餘的部分
-                    val = self.eval_expr(v)
+                    val = self._eval_expr(v)
                     if node.var_type == 'char':
                         self.memory.write_char(symbol.addr + i, val)
                     else:
@@ -190,7 +190,7 @@ class Interpreter:
 
     # ── 陳述式執行 ────────────────────────────────
 
-    def exec_stmt(self, node):
+    def _exec_stmt(self, node):
         """
         遞迴執行單一陳述式節點。
 
@@ -217,27 +217,27 @@ class Interpreter:
             print(f"[line {line}] {node.trace_repr()}")
 
         if isinstance(node, (VarDecl, ArrayDecl)):
-            self.exec_decl(node)
+            self._exec_decl(node)
 
         elif isinstance(node, Block):
             self.symtable.push_scope()
             try:
                 for stmt in node.statements:
-                    self.exec_stmt(stmt)
+                    self._exec_stmt(stmt)
             finally:
                 self.symtable.pop_scope()
 
         elif isinstance(node, IfStmt):
-            cond = self.eval_expr(node.condition)
+            cond = self._eval_expr(node.condition)
             if cond:
-                self.exec_stmt(node.then_branch)
+                self._exec_stmt(node.then_branch)
             elif node.else_branch:
-                self.exec_stmt(node.else_branch)
+                self._exec_stmt(node.else_branch)
 
         elif isinstance(node, WhileStmt):
-            while self.eval_expr(node.condition):
+            while self._eval_expr(node.condition):
                 try:
-                    self.exec_stmt(node.body)
+                    self._exec_stmt(node.body)
                 except BreakException:
                     break
                 except ContinueException:
@@ -246,38 +246,38 @@ class Interpreter:
         elif isinstance(node, DoWhileStmt):
             while True:
                 try:
-                    self.exec_stmt(node.body)
+                    self._exec_stmt(node.body)
                 except BreakException:
                     break
                 except ContinueException:
                     pass
-                if not self.eval_expr(node.condition):
+                if not self._eval_expr(node.condition):
                     break
 
         elif isinstance(node, ForStmt):
             if node.init:
-                self.eval_expr(node.init)
+                self._eval_expr(node.init)
             while True:
-                if node.condition and not self.eval_expr(node.condition):
+                if node.condition and not self._eval_expr(node.condition):
                     break
                 try:
-                    self.exec_stmt(node.body)
+                    self._exec_stmt(node.body)
                 except BreakException:
                     break
                 except ContinueException:
                     pass
                 if node.update:
-                    self.eval_expr(node.update)
+                    self._eval_expr(node.update)
 
         elif isinstance(node, Return):
-            val = self.eval_expr(node.value) if node.value else 0
+            val = self._eval_expr(node.value) if node.value else 0
             raise ReturnException(val)
 
         elif isinstance(node, BreakStmt):
             raise BreakException()
         
         elif isinstance(node, SwitchStmt):
-            val = self.eval_expr(node.expr)
+            val = self._eval_expr(node.expr)
 
             # 第一遍：找出第一個匹配 case 的索引，並記錄 default 的索引
             start_idx = None
@@ -298,19 +298,22 @@ class Interpreter:
             try:
                 for _, case_stmts in node.items[start_idx:]:
                     for stmt in case_stmts:
-                        self.exec_stmt(stmt)
+                        self._exec_stmt(stmt)
             except BreakException:
                 return
 
         elif isinstance(node, ContinueStmt):
             raise ContinueException()
 
+        elif isinstance(node, ExprStmt):
+            self._eval_expr(node.expr)
+
         else:
-            self.eval_expr(node)
+            self._eval_expr(node)
 
     # ── 運算式求值 ────────────────────────────────
 
-    def eval_expr(self, node) -> int:
+    def _eval_expr(self, node) -> int:
         """
         遞迴求值單一運算式節點，回傳整數結果。
 
@@ -357,29 +360,29 @@ class Interpreter:
             return self.memory.read(symbol.addr)
 
         elif isinstance(node, BinOp):
-            return self.eval_binop(node)
+            return self._eval_binop(node)
 
         elif isinstance(node, UnaryOp):
-            return self.eval_unaryop(node)
+            return self._eval_unaryop(node)
 
         elif isinstance(node, Assignment):
-            return self.eval_assignment(node)
+            return self._eval_assignment(node)
 
         elif isinstance(node, Call):
-            return self.eval_call(node)
+            return self._eval_call(node)
 
         elif isinstance(node, AddressOf):
-            return self.eval_addressof(node)
+            return self._eval_addressof(node)
 
         elif isinstance(node, Deref):
-            addr = self.eval_expr(node.pointer)
+            addr = self._eval_expr(node.pointer)
             if addr == 0:
                 raise RuntimeError("Runtime error: null pointer dereference")
             return self.memory.read(addr)
 
         elif isinstance(node, ArrayAccess):
             symbol = self.symtable.lookup(node.array.name)
-            index = self.eval_expr(node.index)
+            index = self._eval_expr(node.index)
             if symbol.is_array:
                 # 真正的陣列：做 bounds check，直接用基底位址
                 if index < 0 or index >= symbol.array_size:
@@ -397,7 +400,7 @@ class Interpreter:
 
     # ── 二元運算式 ────────────────────────────────
 
-    def eval_binop(self, node: BinOp) -> int:
+    def _eval_binop(self, node: BinOp) -> int:
         """
         求值二元運算式。
 
@@ -419,12 +422,12 @@ class Interpreter:
             RuntimeError: 除數為 0，或遇到未知運算子時。
         """
         if node.op == "AND":
-            return 1 if (self.eval_expr(node.left) and self.eval_expr(node.right)) else 0
+            return 1 if (self._eval_expr(node.left) and self._eval_expr(node.right)) else 0
         if node.op == "OR":
-            return 1 if (self.eval_expr(node.left) or self.eval_expr(node.right)) else 0
+            return 1 if (self._eval_expr(node.left) or self._eval_expr(node.right)) else 0
 
-        left = self.eval_expr(node.left)
-        right = self.eval_expr(node.right)
+        left = self._eval_expr(node.left)
+        right = self._eval_expr(node.right)
         op = node.op
 
         if op == "PLUS":    return self._int32(left + right)
@@ -455,7 +458,7 @@ class Interpreter:
 
     # ── 一元運算式 ────────────────────────────────
 
-    def eval_unaryop(self, node: UnaryOp) -> int:
+    def _eval_unaryop(self, node: UnaryOp) -> int:
         """
         求值一元前置運算式。
 
@@ -478,21 +481,21 @@ class Interpreter:
         """
         op = node.op
         if op == "MINUS":
-            return self._int32(-self.eval_expr(node.operand))
+            return self._int32(-self._eval_expr(node.operand))
         if op == "PLUS":
-            return self.eval_expr(node.operand)
+            return self._eval_expr(node.operand)
         if op == "NOT":
-            return 1 if not self.eval_expr(node.operand) else 0
+            return 1 if not self._eval_expr(node.operand) else 0
         if op == "BIT_NOT":
-            return self._int32(~self.eval_expr(node.operand))
+            return self._int32(~self._eval_expr(node.operand))
         if op == "INC":
-            return self.eval_inc_dec(node.operand, 1)
+            return self._eval_inc_dec(node.operand, 1)
         if op == "DEC":
-            return self.eval_inc_dec(node.operand, -1)
+            return self._eval_inc_dec(node.operand, -1)
 
         raise RuntimeError(f"Unknown unary operator: {op}")
 
-    def eval_inc_dec(self, target, delta: int) -> int:
+    def _eval_inc_dec(self, target, delta: int) -> int:
         """
         執行前置遞增（++）或遞減（--），修改目標並回傳修改後的新值。
 
@@ -517,14 +520,14 @@ class Interpreter:
             self.symtable.set_value(target.name, new_val)
             return new_val
         if isinstance(target, Deref):
-            addr = self.eval_expr(target.pointer)
+            addr = self._eval_expr(target.pointer)
             val = self.memory.read(addr)
             new_val = self._int32(val + delta)
             self.memory.write(addr, new_val)
             return new_val
         if isinstance(target, ArrayAccess):
             symbol = self.symtable.lookup(target.array.name)
-            index = self.eval_expr(target.index)
+            index = self._eval_expr(target.index)
             if symbol.is_array:
                 if index < 0 or index >= symbol.array_size:
                     raise RuntimeError(
@@ -546,7 +549,7 @@ class Interpreter:
 
     # ── 賦值運算式 ────────────────────────────────
 
-    def eval_assignment(self, node: Assignment) -> int:
+    def _eval_assignment(self, node: Assignment) -> int:
         """
         執行賦值或複合賦值運算式，將結果寫入左值後回傳。
 
@@ -563,10 +566,10 @@ class Interpreter:
         Raises:
             RuntimeError: 複合賦值中除數為 0，或目標不是合法左值時。
         """
-        val = self.eval_expr(node.value)
+        val = self._eval_expr(node.value)
 
         if node.op != "ASSIGN":
-            old = self.eval_lvalue_read(node.target)
+            old = self._eval_lvalue_read(node.target)
             if node.op == "ADD_ASSIGN":
                 val = self._int32(old + val)
             elif node.op == "SUB_ASSIGN":
@@ -583,10 +586,10 @@ class Interpreter:
                 # C 語意：截斷除法，餘數符號與被除數相同
                 val = self._int32(old - int(old / val) * val)
 
-        self.eval_lvalue_write(node.target, val)
+        self._eval_lvalue_write(node.target, val)
         return val
 
-    def eval_lvalue_read(self, node) -> int:
+    def _eval_lvalue_read(self, node) -> int:
         """
         從左值節點讀取目前的值（供複合賦值使用）。
 
@@ -602,11 +605,11 @@ class Interpreter:
         if isinstance(node, Identifier):
             return self.symtable.get_value(node.name)
         if isinstance(node, Deref):
-            addr = self.eval_expr(node.pointer)
+            addr = self._eval_expr(node.pointer)
             return self.memory.read(addr)
         if isinstance(node, ArrayAccess):
             symbol = self.symtable.lookup(node.array.name)
-            index = self.eval_expr(node.index)
+            index = self._eval_expr(node.index)
             if symbol.is_array:
                 return self.memory.read(symbol.addr + index)
             else:
@@ -614,7 +617,7 @@ class Interpreter:
                 return self.memory.read(base + index)
         raise RuntimeError("Invalid assignment target")
 
-    def eval_lvalue_write(self, node, val: int):
+    def _eval_lvalue_write(self, node, val: int):
         """
         將值寫入左值節點對應的 Memory 位址。
 
@@ -631,13 +634,13 @@ class Interpreter:
         if isinstance(node, Identifier):
             self.symtable.set_value(node.name, val)
         elif isinstance(node, Deref):
-            addr = self.eval_expr(node.pointer)
+            addr = self._eval_expr(node.pointer)
             if addr == 0:
                 raise RuntimeError("Runtime error: null pointer dereference")
             self.memory.write(addr, val)
         elif isinstance(node, ArrayAccess):
             symbol = self.symtable.lookup(node.array.name)
-            index = self.eval_expr(node.index)
+            index = self._eval_expr(node.index)
             if symbol.is_array:
                 if index < 0 or index >= symbol.array_size:
                     raise RuntimeError(
@@ -658,7 +661,7 @@ class Interpreter:
 
     # ── 函式呼叫 ──────────────────────────────────
 
-    def eval_call(self, node: Call) -> int:
+    def _eval_call(self, node: Call) -> int:
         """
         求值函式呼叫運算式。
 
@@ -672,14 +675,14 @@ class Interpreter:
             int: 函式的回傳值。
         """
         name = node.name.name
-        args = [self.eval_expr(a) for a in node.args]
+        args = [self._eval_expr(a) for a in node.args]
 
         if self.builtins.is_builtin(name):
             return self.builtins.call(name, args)
 
-        return self.call_function(name, args)
+        return self._call_function(name, args)
 
-    def call_function(self, name: str, args: list) -> int:
+    def _call_function(self, name: str, args: list) -> int:
         """
         呼叫使用者定義的函式。
 
@@ -718,7 +721,7 @@ class Interpreter:
 
         ret_val = 0
         try:
-            self.exec_stmt(func.body)
+            self._exec_stmt(func.body)
         except ReturnException as e:
             ret_val = e.value
 
@@ -728,7 +731,7 @@ class Interpreter:
 
     # ── 取址運算式 ────────────────────────────────
 
-    def eval_addressof(self, node: AddressOf) -> int:
+    def _eval_addressof(self, node: AddressOf) -> int:
         """
         求值取址運算式（&x 或 &arr[i]），回傳目標的 Memory 位址。
 
@@ -746,7 +749,7 @@ class Interpreter:
             return self.symtable.lookup(target.name).addr
         if isinstance(target, ArrayAccess):
             symbol = self.symtable.lookup(target.array.name)
-            index = self.eval_expr(target.index)
+            index = self._eval_expr(target.index)
             if symbol.is_array:
                 return symbol.addr + index
             else:

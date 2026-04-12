@@ -58,7 +58,15 @@ class Expr(AST):
     """所有運算式節點的基底類別。"""
 
 
-class Number(Expr):
+class Literal(Expr):
+    """所有字面量節點的抽象基底類別（Number、Char、StringLiteral）。"""
+
+
+class PointerExpr(Expr):
+    """所有指標運算節點的抽象基底類別（AddressOf、Deref）。"""
+
+
+class Number(Literal):
     """
     整數字面量，例如 42 或 0xFF。
 
@@ -72,7 +80,7 @@ class Number(Expr):
         return f"Number({self.value})"
 
 
-class Char(Expr):
+class Char(Literal):
     """
     字元字面量，例如 'a' 或 '\\n'。
 
@@ -86,7 +94,7 @@ class Char(Expr):
         return f"Char('{self.value}')"
 
 
-class StringLiteral(Expr):
+class StringLiteral(Literal):
     """
     字串字面量，例如 "hello"。
 
@@ -148,7 +156,7 @@ class BinOp(Expr):
         return f"BinOp({self.left}, {self.op}, {self.right})"
 
 
-class AddressOf(Expr):
+class AddressOf(PointerExpr):
     """
     取址運算式，例如 &x。
 
@@ -162,7 +170,7 @@ class AddressOf(Expr):
         return f"AddressOf({self.target})"
 
 
-class Deref(Expr):
+class Deref(PointerExpr):
     """
     指標解參考運算式，例如 *ptr。
 
@@ -236,7 +244,19 @@ class Stmt(AST):
     line = 0  # 節點在原始碼中的行號，由 Parser 在解析時設定
 
 
-class VarDecl(Stmt):
+class Decl(Stmt):
+    """所有宣告節點的抽象基底類別（VarDecl、ArrayDecl、FuncDef）。"""
+
+
+class LoopStmt(Stmt):
+    """所有迴圈陳述式節點的抽象基底類別（WhileStmt、DoWhileStmt、ForStmt）。"""
+
+
+class JumpStmt(Stmt):
+    """所有跳轉陳述式節點的抽象基底類別（BreakStmt、ContinueStmt、Return）。"""
+
+
+class VarDecl(Decl):
     """
     變數宣告陳述式，例如 int x = 0; 或 char *p;。
 
@@ -261,7 +281,7 @@ class VarDecl(Stmt):
         return f"{self.var_type} {ptr}{self.name}{init};"
 
 
-class ArrayDecl(Stmt):
+class ArrayDecl(Decl):
     """
     陣列宣告陳述式，例如 int arr[5]; 或 int arr[3] = {1, 2, 3};。
 
@@ -296,7 +316,7 @@ class Block(Stmt):
         return f"Block({self.statements})"
 
 
-class Return(Stmt):
+class Return(JumpStmt):
     """
     return 陳述式，例如 return x; 或 return;。
 
@@ -334,7 +354,7 @@ class IfStmt(Stmt):
         return f"if ({self.condition})"
 
 
-class WhileStmt(Stmt):
+class WhileStmt(LoopStmt):
     """
     while 迴圈陳述式，例如 while (x > 0) { ... }。
 
@@ -353,7 +373,7 @@ class WhileStmt(Stmt):
         return f"while ({self.condition})"
 
 
-class DoWhileStmt(Stmt):
+class DoWhileStmt(LoopStmt):
     """
     do-while 迴圈陳述式，例如 do { ... } while (x > 0);。
     與 while 的差別在於主體至少會執行一次。
@@ -373,7 +393,7 @@ class DoWhileStmt(Stmt):
         return f"do ... while ({self.condition})"
 
 
-class ForStmt(Stmt):
+class ForStmt(LoopStmt):
     """
     for 迴圈陳述式，例如 for (i = 0; i < n; i++) { ... }。
     三個子句皆可省略（省略 condition 視同永真）。
@@ -397,7 +417,7 @@ class ForStmt(Stmt):
         return f"for ({self.init}; {self.condition}; {self.update})"
 
 
-class BreakStmt(Stmt):
+class BreakStmt(JumpStmt):
     """break 陳述式，跳出最近的迴圈。"""
 
     def __repr__(self):
@@ -407,7 +427,7 @@ class BreakStmt(Stmt):
         return "break;"
 
 
-class ContinueStmt(Stmt):
+class ContinueStmt(JumpStmt):
     """continue 陳述式，跳至最近迴圈的下一次迭代。"""
 
     def __repr__(self):
@@ -441,7 +461,27 @@ class SwitchStmt(Stmt):
         return f"SwitchStmt({self.expr}, items={self.items})"
 
 
-class FuncDef(Stmt):
+class ExprStmt(Stmt):
+    """
+    將運算式包裝成陳述式，例如 i++; 或 printf("hi");。
+
+    當一個運算式出現在陳述式位置（以分號結尾）時，
+    Parser 會以此節點包裝，維持 list[Stmt] 的型別合約。
+
+    Attributes:
+        expr (Expr): 被包裝的運算式節點。
+    """
+    def __init__(self, expr):
+        self.expr = expr
+
+    def __repr__(self):
+        return f"ExprStmt({self.expr})"
+
+    def trace_repr(self):
+        return f"{self.expr};"
+
+
+class FuncDef(Decl):
     """
     函式定義，例如 int add(int a, int b) { return a + b; }。
 
@@ -517,7 +557,7 @@ class Parser:
 
     # ── 基礎游標操作與工具 ────────────────────────
 
-    def eat(self, kind: str):
+    def _eat(self, kind: str):
         """
         消耗目前 Token 並前進到下一個，若類型不符則拋出例外。
 
@@ -545,7 +585,7 @@ class Parser:
                 f"expected '{kind}'."
             )
 
-    def peek(self):
+    def _peek(self):
         """
         預覽目前位置的下一個 Token（pos+1），不移動游標。
 
@@ -556,7 +596,7 @@ class Parser:
             return self.tokens[self.pos + 1]
         return None
 
-    def peek2(self):
+    def _peek2(self):
         """
         預覽目前位置往後第二個 Token（pos+2），用於判斷是否為函式定義。
 
@@ -567,7 +607,7 @@ class Parser:
             return self.tokens[self.pos + 2]
         return None
 
-    def is_type_token(self) -> bool:
+    def _is_type_token(self) -> bool:
         """
         判斷目前 Token 是否為型別關鍵字（int / char / void）。
 
@@ -589,12 +629,12 @@ class Parser:
         """
         decls = []
         while self.current_token.kind != "EOF":
-            decls.append(self.declaration())
+            decls.append(self._declaration())
         return Program(decls)
 
     # ── 宣告（Declaration）────────────────────────
 
-    def is_func_def(self) -> bool:
+    def _is_func_def(self) -> bool:
         """
         前瞻判斷目前位置是否為函式定義（而非變數宣告）。
 
@@ -605,8 +645,8 @@ class Parser:
         Returns:
             bool: 若接下來是函式定義則為 True。
         """
-        p1 = self.peek()
-        p2 = self.peek2()
+        p1 = self._peek()
+        p2 = self._peek2()
         if p1 and p1.kind == "MUL":
             # 指標回傳型別的函式定義：int *func(...)
             p3 = self.tokens[self.pos + 3] if self.pos + 3 < len(self.tokens) else None
@@ -614,23 +654,23 @@ class Parser:
         # 一般函式定義：int func(...)
         return p1 and p1.kind == "IDENT" and p2 and p2.kind == "LPAREN"
 
-    def declaration(self) -> AST:
+    def _declaration(self) -> AST:
         """
         解析一個頂層宣告：函式定義、變數宣告或陳述式。
 
         Returns:
             AST: FuncDef、VarDecl、ArrayDecl 或 Stmt 節點。
         """
-        if self.is_type_token():
-            if self.is_func_def():
-                return self.func_def()
+        if self._is_type_token():
+            if self._is_func_def():
+                return self._func_def()
             else:
-                return self.var_decl()
-        return self.statement()
+                return self._var_decl()
+        return self._statement()
 
     # ── 陳述式（Statement）────────────────────────
 
-    def statement(self) -> Stmt:
+    def _statement(self) -> Stmt:
         """
         解析單一陳述式，根據目前 Token 分派到對應的解析方法。
 
@@ -642,41 +682,42 @@ class Parser:
         """
         tok = self.current_token
         if tok.kind == "SWITCH":
-            return self.switch_stmt()
+            return self._switch_stmt()
         if tok.kind == "IF":
-            return self.if_stmt()
+            return self._if_stmt()
         if tok.kind == "WHILE":
-            return self.while_stmt()
+            return self._while_stmt()
         if tok.kind == "FOR":
-            return self.for_stmt()
+            return self._for_stmt()
         if tok.kind == "DO":
-            return self.do_while_stmt()
+            return self._do_while_stmt()
         if tok.kind == "RETURN":
-            return self.return_stmt()
+            return self._return_stmt()
         if tok.kind == "BREAK":
-            self.eat("BREAK")
-            self.eat("SEMI")
+            self._eat("BREAK")
+            self._eat("SEMI")
             node = BreakStmt()
             node.line = tok.line
             return node
         if tok.kind == "CONTINUE":
-            self.eat("CONTINUE")
-            self.eat("SEMI")
+            self._eat("CONTINUE")
+            self._eat("SEMI")
             node = ContinueStmt()
             node.line = tok.line
             return node
         if tok.kind == "LBRACE":
-            return self.block()
-        # 一般運算式陳述式（以分號結尾）
+            return self._block()
+        # 一般運算式陳述式（以分號結尾），包裝為 ExprStmt 維持 list[Stmt] 型別合約
         line = tok.line
-        expr = self.expr()
-        expr.line = line  # 動態設定行號供 TRACE 使用
-        self.eat("SEMI")
-        return expr
+        expr = self._expr()
+        self._eat("SEMI")
+        node = ExprStmt(expr)
+        node.line = line
+        return node
 
     # ── 區塊（Block）─────────────────────────────
 
-    def block(self) -> Block:
+    def _block(self) -> Block:
         """
         解析由 { } 包圍的複合陳述式區塊。
         區塊內允許區域變數宣告與一般陳述式混合出現。
@@ -685,19 +726,19 @@ class Parser:
             Block: 包含區塊內所有陳述式的節點。
         """
         line = self.current_token.line
-        self.eat("LBRACE")
+        self._eat("LBRACE")
         stmts = []
         while self.current_token.kind not in ("RBRACE", "EOF"):
-            if self.is_type_token():
-                stmts.append(self.var_decl())
+            if self._is_type_token():
+                stmts.append(self._var_decl())
             else:
-                stmts.append(self.statement())
-        self.eat("RBRACE")
+                stmts.append(self._statement())
+        self._eat("RBRACE")
         node = Block(stmts)
         node.line = line
         return node
 
-    def block_or_stmt(self) -> Block:
+    def _block_or_stmt(self) -> Block:
         """
         解析控制流程的主體，允許帶大括號的區塊或單一陳述式。
         單一陳述式會被包裝成只含一個元素的 Block，方便直譯器統一處理。
@@ -706,12 +747,12 @@ class Parser:
             Block: 主體區塊節點。
         """
         if self.current_token.kind == "LBRACE":
-            return self.block()
-        return Block([self.statement()])
+            return self._block()
+        return Block([self._statement()])
 
     # ── 宣告解析細節 ──────────────────────────────
 
-    def var_decl(self) -> Stmt:
+    def _var_decl(self) -> Stmt:
         """
         解析變數或陣列宣告陳述式。
 
@@ -723,30 +764,30 @@ class Parser:
         """
         line = self.current_token.line  # 記錄型別關鍵字的行號
         var_type = self.current_token.value
-        self.eat(self.current_token.kind)  # 消耗型別關鍵字（INT / CHAR / VOID）
+        self._eat(self.current_token.kind)  # 消耗型別關鍵字（INT / CHAR / VOID）
 
         is_pointer = False
         if self.current_token.kind == "MUL":
             is_pointer = True
-            self.eat("MUL")
+            self._eat("MUL")
 
         name = self.current_token.value
-        self.eat("IDENT")
+        self._eat("IDENT")
 
         if self.current_token.kind == "LBRACKET":
-            return self.array_decl(var_type, name, line)
+            return self._array_decl(var_type, name, line)
 
         value = None
         if self.current_token.kind == "ASSIGN":
-            self.eat("ASSIGN")
-            value = self.expr()
+            self._eat("ASSIGN")
+            value = self._expr()
 
-        self.eat("SEMI")
+        self._eat("SEMI")
         node = VarDecl(var_type, name, value, is_pointer)
         node.line = line
         return node
 
-    def array_decl(self, var_type: str, name: str, line: int = 0) -> ArrayDecl:
+    def _array_decl(self, var_type: str, name: str, line: int = 0) -> ArrayDecl:
         """
         解析陣列宣告，包含可選的大括號初始化列表。
         呼叫前提：已解析完型別與名稱，目前 Token 為 [。
@@ -759,28 +800,28 @@ class Parser:
         Returns:
             ArrayDecl: 陣列宣告節點。
         """
-        self.eat("LBRACKET")
-        size = self.expr()
-        self.eat("RBRACKET")
+        self._eat("LBRACKET")
+        size = self._expr()
+        self._eat("RBRACKET")
 
         value = None
         if self.current_token.kind == "ASSIGN":
-            self.eat("ASSIGN")
-            self.eat("LBRACE")
+            self._eat("ASSIGN")
+            self._eat("LBRACE")
             value = []
             if self.current_token.kind != "RBRACE":
-                value.append(self.expr())
+                value.append(self._expr())
                 while self.current_token.kind == "COMMA":
-                    self.eat("COMMA")
-                    value.append(self.expr())
-            self.eat("RBRACE")
+                    self._eat("COMMA")
+                    value.append(self._expr())
+            self._eat("RBRACE")
 
-        self.eat("SEMI")
+        self._eat("SEMI")
         node = ArrayDecl(var_type, name, size, value)
         node.line = line
         return node
 
-    def func_def(self) -> FuncDef:
+    def _func_def(self) -> FuncDef:
         """
         解析函式定義，包含回傳型別、名稱、參數列表與主體區塊。
 
@@ -789,29 +830,29 @@ class Parser:
         """
         line = self.current_token.line  # 記錄函式定義起始行號
         ret_type = self.current_token.value
-        self.eat(self.current_token.kind)  # 消耗回傳型別關鍵字
+        self._eat(self.current_token.kind)  # 消耗回傳型別關鍵字
 
         is_pointer = False
         if self.current_token.kind == "MUL":
             is_pointer = True
-            self.eat("MUL")
+            self._eat("MUL")
 
         name = self.current_token.value
-        self.eat("IDENT")
-        self.eat("LPAREN")
+        self._eat("IDENT")
+        self._eat("LPAREN")
 
         params = []
         if self.current_token.kind != "RPAREN":
-            params.append(self.param())
+            params.append(self._param())
             while self.current_token.kind == "COMMA":
-                self.eat("COMMA")
-                params.append(self.param())
+                self._eat("COMMA")
+                params.append(self._param())
 
-        self.eat("RPAREN")
-        body = self.block()
+        self._eat("RPAREN")
+        body = self._block()
         return FuncDef(ret_type, name, params, body, is_pointer, line)
 
-    def param(self) -> VarDecl:
+    def _param(self) -> VarDecl:
         """
         解析函式定義中的單一參數，以 VarDecl 節點表示。
 
@@ -819,19 +860,19 @@ class Parser:
             VarDecl: 參數宣告節點（value 固定為 None）。
         """
         var_type = self.current_token.value
-        self.eat(self.current_token.kind)  # 消耗型別關鍵字
+        self._eat(self.current_token.kind)  # 消耗型別關鍵字
 
         is_pointer = False
         if self.current_token.kind == "MUL":
             is_pointer = True
-            self.eat("MUL")
+            self._eat("MUL")
 
         name = self.current_token.value
-        self.eat("IDENT")
+        self._eat("IDENT")
         return VarDecl(var_type, name, None, is_pointer)
 
     # ── 控制流程陳述式 ────────────────────────────
-    def switch_stmt(self) -> SwitchStmt:
+    def _switch_stmt(self) -> SwitchStmt:
         """
         解析 switch/case 條件分支陳述式。
 
@@ -847,47 +888,47 @@ class Parser:
         或字元字面量（CHAR）。遇到 break 時由直譯器負責跳出整個 switch。
         """
         line = self.current_token.line
-        self.eat("SWITCH")
-        self.eat("LPAREN")
-        expr = self.expr()
-        self.eat("RPAREN")
-        self.eat("LBRACE")
+        self._eat("SWITCH")
+        self._eat("LPAREN")
+        expr = self._expr()
+        self._eat("RPAREN")
+        self._eat("LBRACE")
 
         items = []  # [(val_or_None, [stmts]), ...] 依原始碼順序排列
 
         while self.current_token.kind not in ("RBRACE", "EOF"):
             if self.current_token.kind == "CASE":
-                self.eat("CASE")
+                self._eat("CASE")
                 # case 值：支援整數字面量與字元字面量
                 if self.current_token.kind == "NUMBER":
                     val = self.current_token.value
-                    self.eat("NUMBER")
+                    self._eat("NUMBER")
                 elif self.current_token.kind == "CHAR":
                     val = ord(self.current_token.value)
-                    self.eat("CHAR")
+                    self._eat("CHAR")
                 else:
                     raise Exception(
                         f"Syntax error at line {self.current_token.line}: "
                         f"case value must be an integer or character constant."
                     )
-                self.eat("COLON")
+                self._eat("COLON")
                 stmts = []
                 while self.current_token.kind not in ("CASE", "DEFAULT", "RBRACE", "EOF"):
-                    if self.is_type_token():
-                        stmts.append(self.var_decl())
+                    if self._is_type_token():
+                        stmts.append(self._var_decl())
                     else:
-                        stmts.append(self.statement())
+                        stmts.append(self._statement())
                 items.append((val, stmts))
 
             elif self.current_token.kind == "DEFAULT":
-                self.eat("DEFAULT")
-                self.eat("COLON")
+                self._eat("DEFAULT")
+                self._eat("COLON")
                 stmts = []
                 while self.current_token.kind not in ("CASE", "DEFAULT", "RBRACE", "EOF"):
-                    if self.is_type_token():
-                        stmts.append(self.var_decl())
+                    if self._is_type_token():
+                        stmts.append(self._var_decl())
                     else:
-                        stmts.append(self.statement())
+                        stmts.append(self._statement())
                 items.append((None, stmts))  # None 代表 default 分支
 
             else:
@@ -896,101 +937,101 @@ class Parser:
                     f"expected 'case' or 'default' in switch statement."
                 )
 
-        self.eat("RBRACE")
+        self._eat("RBRACE")
         node = SwitchStmt(expr, items)
         node.line = line
         return node
 
-    def if_stmt(self) -> IfStmt:
+    def _if_stmt(self) -> IfStmt:
         """解析 if / if-else 條件陳述式。"""
         line = self.current_token.line
-        self.eat("IF")
-        self.eat("LPAREN")
-        cond = self.expr()
-        self.eat("RPAREN")
-        then_branch = self.block_or_stmt()
+        self._eat("IF")
+        self._eat("LPAREN")
+        cond = self._expr()
+        self._eat("RPAREN")
+        then_branch = self._block_or_stmt()
         else_branch = None
         if self.current_token.kind == "ELSE":
-            self.eat("ELSE")
-            else_branch = self.block_or_stmt()
+            self._eat("ELSE")
+            else_branch = self._block_or_stmt()
         node = IfStmt(cond, then_branch, else_branch)
         node.line = line
         return node
 
-    def while_stmt(self) -> WhileStmt:
+    def _while_stmt(self) -> WhileStmt:
         """解析 while 迴圈陳述式。"""
         line = self.current_token.line
-        self.eat("WHILE")
-        self.eat("LPAREN")
-        cond = self.expr()
-        self.eat("RPAREN")
-        body = self.block_or_stmt()
+        self._eat("WHILE")
+        self._eat("LPAREN")
+        cond = self._expr()
+        self._eat("RPAREN")
+        body = self._block_or_stmt()
         node = WhileStmt(cond, body)
         node.line = line
         return node
 
-    def do_while_stmt(self) -> DoWhileStmt:
+    def _do_while_stmt(self) -> DoWhileStmt:
         """解析 do-while 迴圈陳述式。"""
         line = self.current_token.line
-        self.eat("DO")
-        body = self.block_or_stmt()
-        self.eat("WHILE")
-        self.eat("LPAREN")
-        cond = self.expr()
-        self.eat("RPAREN")
-        self.eat("SEMI")
+        self._eat("DO")
+        body = self._block_or_stmt()
+        self._eat("WHILE")
+        self._eat("LPAREN")
+        cond = self._expr()
+        self._eat("RPAREN")
+        self._eat("SEMI")
         node = DoWhileStmt(body, cond)
         node.line = line
         return node
 
-    def for_stmt(self) -> ForStmt:
+    def _for_stmt(self) -> ForStmt:
         """
         解析 for 迴圈陳述式。
         三個子句（init ; condition ; update）皆可省略。
         """
         line = self.current_token.line
-        self.eat("FOR")
-        self.eat("LPAREN")
+        self._eat("FOR")
+        self._eat("LPAREN")
 
         init = None
         if self.current_token.kind != "SEMI":
-            init = self.expr()
-        self.eat("SEMI")
+            init = self._expr()
+        self._eat("SEMI")
 
         condition = None
         if self.current_token.kind != "SEMI":
-            condition = self.expr()
-        self.eat("SEMI")
+            condition = self._expr()
+        self._eat("SEMI")
 
         update = None
         if self.current_token.kind != "RPAREN":
-            update = self.expr()
-        self.eat("RPAREN")
+            update = self._expr()
+        self._eat("RPAREN")
 
-        body = self.block_or_stmt()
+        body = self._block_or_stmt()
         node = ForStmt(init, condition, update, body)
         node.line = line
         return node
 
-    def return_stmt(self) -> Return:
+    def _return_stmt(self) -> Return:
         """解析 return 陳述式，回傳值可省略（void 函式）。"""
         line = self.current_token.line
-        self.eat("RETURN")
+        self._eat("RETURN")
         val = None
         if self.current_token.kind != "SEMI":
-            val = self.expr()
-        self.eat("SEMI")
+            val = self._expr()
+        self._eat("SEMI")
         node = Return(val)
         node.line = line
         return node
 
     # ── 運算式（Expressions）── 遞迴下降，由低到高優先序 ──
 
-    def expr(self) -> Expr:
+    def _expr(self) -> Expr:
         """運算式入口，委派給最低優先序的 assignment()。"""
-        return self.assignment()
+        return self._assignment()
 
-    def assignment(self) -> Expr:
+    def _assignment(self) -> Expr:
         """
         解析賦值運算式（右結合）。
 
@@ -999,108 +1040,108 @@ class Parser:
 
         支援：= += -= *= /= %=
         """
-        node = self.logic_or()
+        node = self._logic_or()
         if self.current_token.kind in (
             "ASSIGN", "ADD_ASSIGN", "SUB_ASSIGN",
             "MUL_ASSIGN", "DIV_ASSIGN", "MOD_ASSIGN"
         ):
             op = self.current_token.kind
-            self.eat(op)
-            value = self.assignment()   # 右結合：遞迴呼叫自身
+            self._eat(op)
+            value = self._assignment()   # 右結合：遞迴呼叫自身
             return Assignment(node, op, value)
         return node
 
-    def logic_or(self) -> Expr:
+    def _logic_or(self) -> Expr:
         """解析邏輯 OR 運算式（||），左結合。"""
-        node = self.logic_and()
+        node = self._logic_and()
         while self.current_token.kind == "OR":
             op = self.current_token.kind
-            self.eat(op)
-            node = BinOp(node, op, self.logic_and())
+            self._eat(op)
+            node = BinOp(node, op, self._logic_and())
         return node
 
-    def logic_and(self) -> Expr:
+    def _logic_and(self) -> Expr:
         """解析邏輯 AND 運算式（&&），左結合。"""
-        node = self.bit_or()
+        node = self._bit_or()
         while self.current_token.kind == "AND":
             op = self.current_token.kind
-            self.eat(op)
-            node = BinOp(node, op, self.bit_or())
+            self._eat(op)
+            node = BinOp(node, op, self._bit_or())
         return node
 
-    def bit_or(self) -> Expr:
+    def _bit_or(self) -> Expr:
         """解析位元 OR 運算式（|），左結合。"""
-        node = self.bit_xor()
+        node = self._bit_xor()
         while self.current_token.kind == "BIT_OR":
             op = self.current_token.kind
-            self.eat(op)
-            node = BinOp(node, op, self.bit_xor())
+            self._eat(op)
+            node = BinOp(node, op, self._bit_xor())
         return node
 
-    def bit_xor(self) -> Expr:
+    def _bit_xor(self) -> Expr:
         """解析位元 XOR 運算式（^），左結合。"""
-        node = self.bit_and()
+        node = self._bit_and()
         while self.current_token.kind == "BIT_XOR":
             op = self.current_token.kind
-            self.eat(op)
-            node = BinOp(node, op, self.bit_and())
+            self._eat(op)
+            node = BinOp(node, op, self._bit_and())
         return node
 
-    def bit_and(self) -> Expr:
+    def _bit_and(self) -> Expr:
         """解析位元 AND 運算式（&），左結合。"""
-        node = self.equality()
+        node = self._equality()
         while self.current_token.kind == "BIT_AND":
             op = self.current_token.kind
-            self.eat(op)
-            node = BinOp(node, op, self.equality())
+            self._eat(op)
+            node = BinOp(node, op, self._equality())
         return node
 
-    def equality(self) -> Expr:
+    def _equality(self) -> Expr:
         """解析相等比較運算式（== !=），左結合。"""
-        node = self.rel()
+        node = self._rel()
         while self.current_token.kind in ("EQ", "NEQ"):
             op = self.current_token.kind
-            self.eat(op)
-            node = BinOp(node, op, self.rel())
+            self._eat(op)
+            node = BinOp(node, op, self._rel())
         return node
 
-    def rel(self) -> Expr:
+    def _rel(self) -> Expr:
         """解析關係比較運算式（< > <= >=），左結合。"""
-        node = self.shift()
+        node = self._shift()
         while self.current_token.kind in ("LT", "GT", "LTE", "GTE"):
             op = self.current_token.kind
-            self.eat(op)
-            node = BinOp(node, op, self.shift())
+            self._eat(op)
+            node = BinOp(node, op, self._shift())
         return node
 
-    def shift(self) -> Expr:
+    def _shift(self) -> Expr:
         """解析位元位移運算式（<< >>），左結合。"""
-        node = self.add()
+        node = self._add()
         while self.current_token.kind in ("LSHIFT", "RSHIFT"):
             op = self.current_token.kind
-            self.eat(op)
-            node = BinOp(node, op, self.add())
+            self._eat(op)
+            node = BinOp(node, op, self._add())
         return node
 
-    def add(self) -> Expr:
+    def _add(self) -> Expr:
         """解析加減法運算式（+ -），左結合。"""
-        node = self.mul()
+        node = self._mul()
         while self.current_token.kind in ("PLUS", "MINUS"):
             op = self.current_token.kind
-            self.eat(op)
-            node = BinOp(node, op, self.mul())
+            self._eat(op)
+            node = BinOp(node, op, self._mul())
         return node
 
-    def mul(self) -> Expr:
+    def _mul(self) -> Expr:
         """解析乘除餘數運算式（* / %），左結合。"""
-        node = self.unary()
+        node = self._unary()
         while self.current_token.kind in ("MUL", "DIV", "MOD"):
             op = self.current_token.kind
-            self.eat(op)
-            node = BinOp(node, op, self.unary())
+            self._eat(op)
+            node = BinOp(node, op, self._unary())
         return node
 
-    def unary(self) -> Expr:
+    def _unary(self) -> Expr:
         """
         解析一元前置運算式（右結合）。
 
@@ -1112,20 +1153,20 @@ class Parser:
         """
         tok = self.current_token
         if tok.kind in ("PLUS", "MINUS", "NOT", "BIT_NOT"):
-            self.eat(tok.kind)
-            return UnaryOp(tok.kind, self.unary())
+            self._eat(tok.kind)
+            return UnaryOp(tok.kind, self._unary())
         if tok.kind == "MUL":
-            self.eat("MUL")
-            return Deref(self.unary())
+            self._eat("MUL")
+            return Deref(self._unary())
         if tok.kind == "BIT_AND":
-            self.eat("BIT_AND")
-            return AddressOf(self.unary())
+            self._eat("BIT_AND")
+            return AddressOf(self._unary())
         if tok.kind in ("INC", "DEC"):
-            self.eat(tok.kind)
-            return UnaryOp(tok.kind, self.unary())
-        return self.primary()
+            self._eat(tok.kind)
+            return UnaryOp(tok.kind, self._unary())
+        return self._primary()
 
-    def primary(self) -> Expr:
+    def _primary(self) -> Expr:
         """
         解析最高優先序的基本運算式（primary expression）。
 
@@ -1144,48 +1185,48 @@ class Parser:
         tok = self.current_token
 
         if tok.kind == "NUMBER":
-            self.eat("NUMBER")
+            self._eat("NUMBER")
             return Number(tok.value)
 
         if tok.kind == "CHAR":
-            self.eat("CHAR")
+            self._eat("CHAR")
             return Char(tok.value)
 
         if tok.kind == "STRING":
-            self.eat("STRING")
+            self._eat("STRING")
             return StringLiteral(tok.value)
 
         if tok.kind == "IDENT":
             name = tok.value
-            self.eat("IDENT")
+            self._eat("IDENT")
             node = Identifier(name)
 
             if self.current_token.kind == "LPAREN":
                 # 函式呼叫：IDENT ( arg, ... )
-                self.eat("LPAREN")
+                self._eat("LPAREN")
                 args = []
                 if self.current_token.kind != "RPAREN":
-                    args.append(self.expr())
+                    args.append(self._expr())
                     while self.current_token.kind == "COMMA":
-                        self.eat("COMMA")
-                        args.append(self.expr())
-                self.eat("RPAREN")
+                        self._eat("COMMA")
+                        args.append(self._expr())
+                self._eat("RPAREN")
                 node = Call(node, args)
 
             if self.current_token.kind == "LBRACKET":
                 # 陣列索引存取：IDENT [ index ]
-                self.eat("LBRACKET")
-                index = self.expr()
-                self.eat("RBRACKET")
+                self._eat("LBRACKET")
+                index = self._expr()
+                self._eat("RBRACKET")
                 node = ArrayAccess(node, index)
 
             return node
 
         if tok.kind == "LPAREN":
             # 括號運算式：( expr )
-            self.eat("LPAREN")
-            node = self.expr()
-            self.eat("RPAREN")
+            self._eat("LPAREN")
+            node = self._expr()
+            self._eat("RPAREN")
             return node
 
         raise Exception(
