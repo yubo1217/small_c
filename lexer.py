@@ -79,6 +79,7 @@ def preprocess(source: str) -> str:
             parts = stripped.split()
             if len(parts) == 3:
                 defines[parts[1]] = parts[2]   # 記錄巨集名稱 → 取代值
+            lines.append('')   # 保留空行，維持後續 Token 的行號與 buffer 一致
         else:
             lines.append(line)
 
