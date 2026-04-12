@@ -1,0 +1,17 @@
+\usepackage{xeCJK}
+\usepackage[section]{placeins}
+\setCJKmainfont[Path=/usr/share/fonts/google-noto-serif-cjk-fonts/,FontIndex=3]{NotoSerifCJK-Regular.ttc}
+\setCJKsansfont[Path=/usr/share/fonts/google-noto-sans-cjk-fonts/,FontIndex=3]{NotoSansCJK-Regular.ttc}
+\setCJKmonofont[Path=/usr/share/fonts/google-noto-sans-cjk-fonts/,FontIndex=3]{NotoSansCJK-Regular.ttc}
+\renewcommand{\figurename}{圖}
+
+\usepackage{titlesec}
+\titleformat{\section}[block]{\fontsize{18}{22}\bfseries}{\thesection}{0.8em}{}[\setlength{\leftskip}{0em}]
+\titleformat{\subsection}[block]{\fontsize{14}{18}\bfseries}{\thesubsection}{0.8em}{}[\setlength{\leftskip}{1.5em}]
+\titleformat{\subsubsection}[block]{\fontsize{12}{16}\bfseries}{\thesubsubsection}{0.8em}{}[\setlength{\leftskip}{3em}]
+\titlespacing*{\section}{0em}{24pt}{8pt}
+\titlespacing*{\subsection}{1.5em}{16pt}{8pt}
+\titlespacing*{\subsubsection}{3em}{12pt}{6pt}
+
+\setlength{\parindent}{0em}
+\setlength{\parskip}{0.6em}

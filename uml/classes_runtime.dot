@@ -1,0 +1,50 @@
+digraph "Runtime Modules" {
+rankdir=TB
+nodesep=0.6
+ranksep=1.0
+charset="utf-8"
+
+// ── Lexer 層 ──────────────────────────────────
+"lexer.Token" [label=<{Token|kind<br ALIGN="LEFT"/>value<br ALIGN="LEFT"/>line : int<br ALIGN="LEFT"/>|}>, shape="record", style="solid"];
+"lexer.Lexer" [label=<{Lexer|text : str<br ALIGN="LEFT"/>pos : int<br ALIGN="LEFT"/>line : int<br ALIGN="LEFT"/>KEYWORDS : dict<br ALIGN="LEFT"/>DOUBLE_OPS : dict<br ALIGN="LEFT"/>SINGLE_OPS : dict<br ALIGN="LEFT"/>|tokenize()<br ALIGN="LEFT"/>}>, shape="record", style="solid"];
+
+// ── Parser 層 ─────────────────────────────────
+"parser.Parser" [label=<{Parser|tokens : list<br ALIGN="LEFT"/>pos : int<br ALIGN="LEFT"/>current_token<br ALIGN="LEFT"/>|parse(): Program<br ALIGN="LEFT"/>}>, shape="record", style="solid"];
+
+// ── Memory ────────────────────────────────────
+"memory.Memory" [label=<{Memory|data : list[int]<br ALIGN="LEFT"/>heap_top : int<br ALIGN="LEFT"/>|allocate(size): int<br ALIGN="LEFT"/>free_to(addr)<br ALIGN="LEFT"/>read(addr): int<br ALIGN="LEFT"/>write(addr, value)<br ALIGN="LEFT"/>write_char(addr, value)<br ALIGN="LEFT"/>read_string(addr): str<br ALIGN="LEFT"/>write_string(addr, s)<br ALIGN="LEFT"/>reset()<br ALIGN="LEFT"/>}>, shape="record", style="solid"];
+
+// ── SymbolTable ───────────────────────────────
+"symtable.Symbol" [label=<{Symbol|name : str<br ALIGN="LEFT"/>var_type : str<br ALIGN="LEFT"/>addr : int<br ALIGN="LEFT"/>is_pointer : bool<br ALIGN="LEFT"/>is_array : bool<br ALIGN="LEFT"/>array_size : int<br ALIGN="LEFT"/>|}>, shape="record", style="solid"];
+"symtable.SymbolTable" [label=<{SymbolTable|scopes : list[dict]<br ALIGN="LEFT"/>memory<br ALIGN="LEFT"/>|push_scope()<br ALIGN="LEFT"/>pop_scope()<br ALIGN="LEFT"/>declare(name, type): Symbol<br ALIGN="LEFT"/>declare_array(name, type, size): Symbol<br ALIGN="LEFT"/>lookup(name): Symbol<br ALIGN="LEFT"/>get_value(name): int<br ALIGN="LEFT"/>set_value(name, value)<br ALIGN="LEFT"/>reset()<br ALIGN="LEFT"/>}>, shape="record", style="solid"];
+
+// ── Builtins ──────────────────────────────────
+"builtins_funcs.Builtins" [label=<{Builtins|memory<br ALIGN="LEFT"/>_dispatch : dict<br ALIGN="LEFT"/>|call(name, args)<br ALIGN="LEFT"/>is_builtin(name): bool<br ALIGN="LEFT"/>}>, shape="record", style="solid"];
+
+// ── 控制流程例外 ──────────────────────────────
+"interpreter.BreakException" [label=<{BreakException||}>, shape="record", style="solid", fontcolor="red"];
+"interpreter.ContinueException" [label=<{ContinueException||}>, shape="record", style="solid", fontcolor="red"];
+"interpreter.ReturnException" [label=<{ReturnException|value<br ALIGN="LEFT"/>|}>, shape="record", style="solid", fontcolor="red"];
+
+// ── Interpreter ───────────────────────────────
+"interpreter.Interpreter" [label=<{Interpreter|memory<br ALIGN="LEFT"/>symtable : SymbolTable<br ALIGN="LEFT"/>builtins<br ALIGN="LEFT"/>functions : dict<br ALIGN="LEFT"/>trace : bool<br ALIGN="LEFT"/>|execute(program)<br ALIGN="LEFT"/>execute_interactive(program)<br ALIGN="LEFT"/>reset()<br ALIGN="LEFT"/>}>, shape="record", style="solid"];
+
+// ── REPL ──────────────────────────────────────
+"repl.ReplInputCollector" [label=<{ReplInputCollector|source : str<br ALIGN="LEFT"/>depth : int<br ALIGN="LEFT"/>in_string : bool<br ALIGN="LEFT"/>in_char : bool<br ALIGN="LEFT"/>in_block_comment : bool<br ALIGN="LEFT"/>|feed(line)<br ALIGN="LEFT"/>is_complete(): bool<br ALIGN="LEFT"/>reset()<br ALIGN="LEFT"/>}>, shape="record", style="solid"];
+"repl.REPL" [label=<{REPL|buffer : list<br ALIGN="LEFT"/>interpreter<br ALIGN="LEFT"/>trace : bool<br ALIGN="LEFT"/>modified : bool<br ALIGN="LEFT"/>COMMANDS : set<br ALIGN="LEFT"/>|run()<br ALIGN="LEFT"/>}>, shape="record", style="solid"];
+
+// ── 組合關係 ──────────────────────────────────
+"lexer.Lexer"               -> "parser.Parser"          [arrowhead="diamond", label="lexer", fontcolor="green"];
+"memory.Memory"             -> "symtable.SymbolTable"   [arrowhead="diamond", label="memory", fontcolor="green"];
+"memory.Memory"             -> "interpreter.Interpreter"[arrowhead="diamond", label="memory", fontcolor="green"];
+"memory.Memory"             -> "builtins_funcs.Builtins"[arrowhead="diamond", label="memory", fontcolor="green"];
+"symtable.SymbolTable"      -> "interpreter.Interpreter"[arrowhead="diamond", label="symtable", fontcolor="green"];
+"builtins_funcs.Builtins"   -> "interpreter.Interpreter"[arrowhead="diamond", label="builtins", fontcolor="green"];
+"interpreter.Interpreter"   -> "repl.REPL"              [arrowhead="diamond", label="interpreter", fontcolor="green"];
+
+// ── 使用關係 ──────────────────────────────────
+"symtable.Symbol"           -> "symtable.SymbolTable"   [arrowhead="open", style="dashed", label="contains", fontcolor="gray"];
+"interpreter.BreakException"    -> "interpreter.Interpreter" [arrowhead="open", style="dashed", label="throws", fontcolor="gray"];
+"interpreter.ContinueException" -> "interpreter.Interpreter" [arrowhead="open", style="dashed", label="throws", fontcolor="gray"];
+"interpreter.ReturnException"   -> "interpreter.Interpreter" [arrowhead="open", style="dashed", label="throws", fontcolor="gray"];
+}

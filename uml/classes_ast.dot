@@ -1,0 +1,88 @@
+digraph "AST Nodes" {
+rankdir=LR
+nodesep=0.4
+ranksep=0.8
+charset="utf-8"
+
+// ── 抽象基底 ──────────────────────────────────
+"parser.AST" [label=<{AST|<br ALIGN="LEFT"/>|trace_repr(): str<br ALIGN="LEFT"/>}>, shape="record", style="solid"];
+"parser.Expr" [label=<{Expr||}>, shape="record", style="dashed"];
+"parser.Stmt" [label=<{Stmt|line : int<br ALIGN="LEFT"/>|}>, shape="record", style="dashed"];
+"parser.Decl" [label=<{Decl||}>, shape="record", style="dashed"];
+"parser.Literal" [label=<{Literal||}>, shape="record", style="dashed"];
+"parser.PointerExpr" [label=<{PointerExpr||}>, shape="record", style="dashed"];
+"parser.JumpStmt" [label=<{JumpStmt||}>, shape="record", style="dashed"];
+"parser.LoopStmt" [label=<{LoopStmt||}>, shape="record", style="dashed"];
+
+// ── 頂層節點 ──────────────────────────────────
+"parser.Program" [label=<{Program|decls<br ALIGN="LEFT"/>|}>, shape="record", style="solid"];
+"parser.FuncDef" [label=<{FuncDef|name<br ALIGN="LEFT"/>ret_type<br ALIGN="LEFT"/>params<br ALIGN="LEFT"/>body<br ALIGN="LEFT"/>|}>, shape="record", style="solid"];
+
+// ── 運算式節點 ────────────────────────────────
+"parser.BinOp" [label=<{BinOp|left<br ALIGN="LEFT"/>op<br ALIGN="LEFT"/>right<br ALIGN="LEFT"/>|}>, shape="record", style="solid"];
+"parser.UnaryOp" [label=<{UnaryOp|op<br ALIGN="LEFT"/>operand<br ALIGN="LEFT"/>|}>, shape="record", style="solid"];
+"parser.Assignment" [label=<{Assignment|op<br ALIGN="LEFT"/>target<br ALIGN="LEFT"/>value<br ALIGN="LEFT"/>|}>, shape="record", style="solid"];
+"parser.Call" [label=<{Call|name<br ALIGN="LEFT"/>args<br ALIGN="LEFT"/>|}>, shape="record", style="solid"];
+"parser.Identifier" [label=<{Identifier|name<br ALIGN="LEFT"/>|}>, shape="record", style="solid"];
+"parser.Number" [label=<{Number|value<br ALIGN="LEFT"/>|}>, shape="record", style="solid"];
+"parser.Char" [label=<{Char|value<br ALIGN="LEFT"/>|}>, shape="record", style="solid"];
+"parser.StringLiteral" [label=<{StringLiteral|value<br ALIGN="LEFT"/>|}>, shape="record", style="solid"];
+"parser.AddressOf" [label=<{AddressOf|target<br ALIGN="LEFT"/>|}>, shape="record", style="solid"];
+"parser.Deref" [label=<{Deref|pointer<br ALIGN="LEFT"/>|}>, shape="record", style="solid"];
+"parser.ArrayAccess" [label=<{ArrayAccess|array<br ALIGN="LEFT"/>index<br ALIGN="LEFT"/>|}>, shape="record", style="solid"];
+
+// ── 陳述式節點 ────────────────────────────────
+"parser.Block" [label=<{Block|statements<br ALIGN="LEFT"/>|}>, shape="record", style="solid"];
+"parser.ExprStmt" [label=<{ExprStmt|expr<br ALIGN="LEFT"/>|}>, shape="record", style="solid"];
+"parser.IfStmt" [label=<{IfStmt|condition<br ALIGN="LEFT"/>then_branch<br ALIGN="LEFT"/>else_branch<br ALIGN="LEFT"/>|}>, shape="record", style="solid"];
+"parser.WhileStmt" [label=<{WhileStmt|condition<br ALIGN="LEFT"/>body<br ALIGN="LEFT"/>|}>, shape="record", style="solid"];
+"parser.DoWhileStmt" [label=<{DoWhileStmt|body<br ALIGN="LEFT"/>condition<br ALIGN="LEFT"/>|}>, shape="record", style="solid"];
+"parser.ForStmt" [label=<{ForStmt|init<br ALIGN="LEFT"/>condition<br ALIGN="LEFT"/>update<br ALIGN="LEFT"/>body<br ALIGN="LEFT"/>|}>, shape="record", style="solid"];
+"parser.SwitchStmt" [label=<{SwitchStmt|expr<br ALIGN="LEFT"/>items<br ALIGN="LEFT"/>|}>, shape="record", style="solid"];
+"parser.BreakStmt" [label=<{BreakStmt||}>, shape="record", style="solid"];
+"parser.ContinueStmt" [label=<{ContinueStmt||}>, shape="record", style="solid"];
+"parser.Return" [label=<{Return|value<br ALIGN="LEFT"/>|}>, shape="record", style="solid"];
+"parser.VarDecl" [label=<{VarDecl|var_type<br ALIGN="LEFT"/>name<br ALIGN="LEFT"/>is_pointer<br ALIGN="LEFT"/>value<br ALIGN="LEFT"/>|}>, shape="record", style="solid"];
+"parser.ArrayDecl" [label=<{ArrayDecl|var_type<br ALIGN="LEFT"/>name<br ALIGN="LEFT"/>size<br ALIGN="LEFT"/>value<br ALIGN="LEFT"/>|}>, shape="record", style="solid"];
+
+// ── 繼承關係 ──────────────────────────────────
+"parser.Expr"         -> "parser.AST"        [arrowhead="empty"];
+"parser.Stmt"         -> "parser.AST"        [arrowhead="empty"];
+"parser.Program"      -> "parser.AST"        [arrowhead="empty"];
+
+"parser.Literal"      -> "parser.Expr"       [arrowhead="empty"];
+"parser.PointerExpr"  -> "parser.Expr"       [arrowhead="empty"];
+"parser.BinOp"        -> "parser.Expr"       [arrowhead="empty"];
+"parser.UnaryOp"      -> "parser.Expr"       [arrowhead="empty"];
+"parser.Assignment"   -> "parser.Expr"       [arrowhead="empty"];
+"parser.Call"         -> "parser.Expr"       [arrowhead="empty"];
+"parser.Identifier"   -> "parser.Expr"       [arrowhead="empty"];
+"parser.ArrayAccess"  -> "parser.Expr"       [arrowhead="empty"];
+
+"parser.Number"       -> "parser.Literal"    [arrowhead="empty"];
+"parser.Char"         -> "parser.Literal"    [arrowhead="empty"];
+"parser.StringLiteral"-> "parser.Literal"    [arrowhead="empty"];
+
+"parser.AddressOf"    -> "parser.PointerExpr"[arrowhead="empty"];
+"parser.Deref"        -> "parser.PointerExpr"[arrowhead="empty"];
+
+"parser.Decl"         -> "parser.Stmt"       [arrowhead="empty"];
+"parser.JumpStmt"     -> "parser.Stmt"       [arrowhead="empty"];
+"parser.LoopStmt"     -> "parser.Stmt"       [arrowhead="empty"];
+"parser.Block"        -> "parser.Stmt"       [arrowhead="empty"];
+"parser.ExprStmt"     -> "parser.Stmt"       [arrowhead="empty"];
+"parser.IfStmt"       -> "parser.Stmt"       [arrowhead="empty"];
+"parser.SwitchStmt"   -> "parser.Stmt"       [arrowhead="empty"];
+
+"parser.VarDecl"      -> "parser.Decl"       [arrowhead="empty"];
+"parser.ArrayDecl"    -> "parser.Decl"       [arrowhead="empty"];
+"parser.FuncDef"      -> "parser.Decl"       [arrowhead="empty"];
+
+"parser.BreakStmt"    -> "parser.JumpStmt"   [arrowhead="empty"];
+"parser.ContinueStmt" -> "parser.JumpStmt"   [arrowhead="empty"];
+"parser.Return"       -> "parser.JumpStmt"   [arrowhead="empty"];
+
+"parser.WhileStmt"    -> "parser.LoopStmt"   [arrowhead="empty"];
+"parser.DoWhileStmt"  -> "parser.LoopStmt"   [arrowhead="empty"];
+"parser.ForStmt"      -> "parser.LoopStmt"   [arrowhead="empty"];
+}

@@ -1,5 +1,7 @@
 digraph "classes_SmallC" {
-rankdir=BT
+rankdir=TB
+nodesep=0.4
+ranksep=0.6
 charset="utf-8"
 "parser.AST" [color="black", fontcolor="black", label=<{AST|<br ALIGN="LEFT"/>|trace_repr(): str<br ALIGN="LEFT"/>}>, shape="record", style="solid"];
 "parser.AddressOf" [color="black", fontcolor="black", label=<{AddressOf|target<br ALIGN="LEFT"/>|}>, shape="record", style="solid"];

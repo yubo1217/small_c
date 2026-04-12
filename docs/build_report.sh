@@ -8,6 +8,7 @@ cd "$(dirname "$0")"
 pandoc report.md \
   -o report.pdf \
   --pdf-engine=xelatex \
+  --include-in-header=header.tex \
   --highlight-style=tango \
   -V papersize=a4 \
   -V linestretch=1.3
