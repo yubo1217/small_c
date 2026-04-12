@@ -406,7 +406,7 @@ class REPL:
             print("Invalid line number.")
             return
 
-        if start < 1 or end > len(self.buffer):
+        if start < 1 or end > len(self.buffer) or start > end:
             print("Error: Line number out of range.")
             return
 

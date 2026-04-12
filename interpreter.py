@@ -220,12 +220,14 @@ class Interpreter:
             self._exec_decl(node)
 
         elif isinstance(node, Block):
+            save_top = self.memory.heap_top   # 記錄進入區塊前的堆頂，以便離開時釋放區域變數
             self.symtable.push_scope()
             try:
                 for stmt in node.statements:
                     self._exec_stmt(stmt)
             finally:
                 self.symtable.pop_scope()
+                self.memory.free_to(save_top)  # 釋放本區塊內分配的所有記憶體（含字串字面量）
 
         elif isinstance(node, IfStmt):
             cond = self._eval_expr(node.condition)
@@ -450,8 +452,14 @@ class Interpreter:
         if op == "BIT_AND": return int32(left & right)
         if op == "BIT_OR":  return int32(left | right)
         if op == "BIT_XOR": return int32(left ^ right)
-        if op == "LSHIFT":  return int32(left << right)
-        if op == "RSHIFT":  return int32(left >> right)
+        if op == "LSHIFT":
+            if right < 0:
+                raise RuntimeError("Runtime error: left shift count is negative.")
+            return int32(left << right)
+        if op == "RSHIFT":
+            if right < 0:
+                raise RuntimeError("Runtime error: right shift count is negative.")
+            return int32(left >> right)
 
         raise RuntimeError(f"Unknown binary operator: {op}")
 

@@ -72,6 +72,10 @@ def preprocess(source: str) -> str:
     for line in source.split('\n'):
         stripped = line.strip()
         if stripped.startswith('#define'):
+            # 移除行尾的單行註解（// ...），避免 len(parts) > 3 而被靜默忽略
+            comment_idx = stripped.find('//')
+            if comment_idx != -1:
+                stripped = stripped[:comment_idx].strip()
             parts = stripped.split()
             if len(parts) == 3:
                 defines[parts[1]] = parts[2]   # 記錄巨集名稱 → 取代值
