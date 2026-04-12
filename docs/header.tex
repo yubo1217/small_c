@@ -15,3 +15,15 @@
 
 \setlength{\parindent}{0em}
 \setlength{\parskip}{0.6em}
+
+% ── 表格全寬 ──────────────────────────────────────
+% longtable 靠左無邊距，讓 p{} 欄寬充滿 \textwidth
+\setlength{\LTleft}{0pt}
+\setlength{\LTright}{0pt}
+
+% ── 程式碼區塊禁止分頁 ────────────────────────────
+\usepackage{etoolbox}
+\BeforeBeginEnvironment{verbatim}{\noindent\begin{minipage}{\textwidth}}
+\AfterEndEnvironment{verbatim}{\end{minipage}\par}
+\BeforeBeginEnvironment{Shaded}{\noindent\begin{minipage}{\textwidth}}
+\AfterEndEnvironment{Shaded}{\end{minipage}\par}
