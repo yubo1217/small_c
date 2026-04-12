@@ -46,7 +46,7 @@ colorlinks: true
 
 圖一為各模組的相依關係圖：
 
-![圖一：模組相依關係圖](../uml/packages_SmallC.png){ width=75% }
+![模組相依關係圖](../uml/packages_SmallC.png){ width=75% }
 
 由圖中可見各模組的依賴關係如下：
 
@@ -86,12 +86,6 @@ colorlinks: true
 
 ## 類別結構
 
-圖二與圖三為各模組中主要類別與 AST 節點的完整類別圖：
-
-![圖二：AST 節點繼承層次](../uml/classes_ast.png){ width=80% }
-
-![圖三：執行期模組類別圖](../uml/classes_runtime.png){ width=90% }
-
 AST 節點分為三個層次：
 
 - **頂層節點**
@@ -112,6 +106,12 @@ AST 節點分為三個層次：
     - 跳躍：`BreakStmt`、`ContinueStmt`、`Return`
     - 宣告：`VarDecl`（變數宣告）、`ArrayDecl`（陣列宣告）
     - 其他：`ExprStmt`（運算式陳述式）
+
+各模組中主要類別與 AST 節點的完整類別圖如下：
+
+![AST 節點繼承層次](../uml/classes_ast.png){ width=80% }
+
+![執行期模組類別圖](../uml/classes_runtime.png){ width=90% }
 
 \newpage
 
