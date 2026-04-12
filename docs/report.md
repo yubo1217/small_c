@@ -4,8 +4,13 @@ author: "Yu-Bo Lin"
 date: "2026 年春季學期"
 geometry: "margin=2.5cm"
 fontsize: 12pt
-mainfont: "Noto Serif CJK TC"
-monofont: "Noto Sans Mono"
+mainfont: "Liberation Serif"
+monofont: "Liberation Mono"
+header-includes:
+  - \usepackage{xeCJK}
+  - "\\setCJKmainfont[Path=/usr/share/fonts/google-noto-serif-cjk-fonts/,FontIndex=3]{NotoSerifCJK-Regular.ttc}"
+  - "\\setCJKsansfont[Path=/usr/share/fonts/google-noto-sans-cjk-fonts/,FontIndex=3]{NotoSansCJK-Regular.ttc}"
+  - "\\setCJKmonofont[Path=/usr/share/fonts/google-noto-sans-cjk-fonts/,FontIndex=3]{NotoSansCJK-Regular.ttc}"
 toc: true
 toc-depth: 3
 numbersections: true
