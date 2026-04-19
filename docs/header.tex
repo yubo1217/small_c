@@ -1,8 +1,8 @@
 \usepackage{xeCJK}
 \usepackage[section]{placeins}
-\setCJKmainfont[Path=/usr/share/fonts/google-noto-serif-cjk-fonts/,FontIndex=3]{NotoSerifCJK-Regular.ttc}
-\setCJKsansfont[Path=/usr/share/fonts/google-noto-sans-cjk-fonts/,FontIndex=3]{NotoSansCJK-Regular.ttc}
-\setCJKmonofont[Path=/usr/share/fonts/google-noto-sans-cjk-fonts/,FontIndex=3]{NotoSansCJK-Regular.ttc}
+\setCJKmainfont[Path=/usr/share/fonts/opentype/noto/,FontIndex=3]{NotoSerifCJK-Regular.ttc}
+\setCJKsansfont[Path=/usr/share/fonts/opentype/noto/,FontIndex=3]{NotoSansCJK-Regular.ttc}
+\setCJKmonofont[Path=/usr/share/fonts/opentype/noto/,FontIndex=3]{NotoSansCJK-Regular.ttc}
 \renewcommand{\figurename}{圖}
 
 \usepackage{titlesec}
@@ -22,6 +22,7 @@
 \setlength{\LTright}{0pt}
 
 % ── 程式碼區塊禁止分頁 ────────────────────────────
+\usepackage{pdflscape}
 \usepackage{etoolbox}
 \BeforeBeginEnvironment{verbatim}{\noindent\begin{minipage}{\textwidth}}
 \AfterEndEnvironment{verbatim}{\end{minipage}\par}
