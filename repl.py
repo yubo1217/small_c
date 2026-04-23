@@ -28,7 +28,7 @@ Usage:
 import os
 import sys
 from lexer import Lexer, preprocess
-from parser import Parser
+from parser import Parser, IfStmt
 from interpreter import Interpreter
 
 
@@ -254,8 +254,16 @@ class REPL:
                 source = collector.source.strip()
                 collector.reset()
                 if source:
-                    # 延遲執行：暫存，等待可能的 else
-                    pending_source = source
+                    # 僅 if-stmt（無 else）才延遲執行，等待可能的 else
+                    try:
+                        prog = Parser(preprocess(source)).parse()
+                        last = prog.decls[-1] if prog.decls else None
+                        if isinstance(last, IfStmt) and last.else_body is None:
+                            pending_source = source
+                        else:
+                            self._execute_interactive(source)
+                    except Exception:
+                        self._execute_interactive(source)
 
     # ── 互動執行 ──────────────────────────────────
 
