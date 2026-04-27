@@ -355,7 +355,11 @@ class REPL:
             return
         filename = parts[1]
         if self.modified:
-            ans = input("Buffer has unsaved changes. Discard? (y/n): ").strip().lower()
+            try:
+                ans = input("Buffer has unsaved changes. Discard? (y/n): ").strip().lower()
+            except EOFError:
+                print()
+                return
             if ans != 'y':
                 return
         try:
@@ -439,7 +443,11 @@ class REPL:
             print(f"Error: Line {n} out of range.")
             return
         print(f"{n:4}: {self.buffer[n - 1]}")
-        new_line = input(f"{n:4}: ")
+        try:
+            new_line = input(f"{n:4}: ")
+        except EOFError:
+            print()
+            return
         if new_line:
             self.buffer[n - 1] = new_line
             self.modified = True
@@ -496,7 +504,11 @@ class REPL:
         insert_lines = []
         line_num = n
         while True:
-            line = input(f"{line_num:4}> ")
+            try:
+                line = input(f"{line_num:4}> ")
+            except EOFError:
+                print()
+                break
             if line.strip() == '.':
                 break
             insert_lines.append(line)
@@ -514,7 +526,11 @@ class REPL:
         print("Enter lines (type '.' to finish):")
         line_num = len(self.buffer) + 1
         while True:
-            line = input(f"{line_num:4}> ")
+            try:
+                line = input(f"{line_num:4}> ")
+            except EOFError:
+                print()
+                break
             if line.strip() == '.':
                 break
             self.buffer.append(line)
@@ -529,7 +545,11 @@ class REPL:
         用法：NEW
         """
         if self.modified:
-            ans = input("Buffer has unsaved changes. Discard? (y/n): ").strip().lower()
+            try:
+                ans = input("Buffer has unsaved changes. Discard? (y/n): ").strip().lower()
+            except EOFError:
+                print()
+                return
             if ans != 'y':
                 return
         self.buffer = []
