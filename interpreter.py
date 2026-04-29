@@ -544,7 +544,11 @@ class Interpreter:
             addr = self._eval_expr(target.pointer)
             val = self.memory.read(addr)
             new_val = int32(val + delta)
-            self.memory.write(addr, new_val)
+            if (isinstance(target.pointer, Identifier) and
+                    self.symtable.lookup(target.pointer.name).var_type == 'char'):
+                self.memory.write_char(addr, new_val)
+            else:
+                self.memory.write(addr, new_val)
             return new_val
         if isinstance(target, ArrayAccess):
             symbol = self.symtable.lookup(target.array.name)
@@ -658,7 +662,12 @@ class Interpreter:
             addr = self._eval_expr(node.pointer)
             if addr == 0:
                 raise RuntimeError("Runtime error: null pointer dereference")
-            self.memory.write(addr, val)
+            # char* 指標寫入需要 8 位元截斷
+            if (isinstance(node.pointer, Identifier) and
+                    self.symtable.lookup(node.pointer.name).var_type == 'char'):
+                self.memory.write_char(addr, val)
+            else:
+                self.memory.write(addr, val)
         elif isinstance(node, ArrayAccess):
             symbol = self.symtable.lookup(node.array.name)
             index = self._eval_expr(node.index)

@@ -29,7 +29,7 @@ import os
 import sys
 from lexer import Lexer, preprocess
 from parser import Parser, IfStmt, ParseError
-from interpreter import Interpreter
+from interpreter import Interpreter, BreakException, ContinueException, ReturnException
 
 
 # ═══════════════════════════════════════════════════════════
@@ -162,6 +162,7 @@ class REPL:
         self.buffer = []
         self.modified = False
         self.trace = False
+        self._defines = {}   # 互動模式跨輸入共享的 #define 字典
 
     def _is_command(self, line: str) -> bool:
         """
@@ -282,7 +283,8 @@ class REPL:
             source (str): 要執行的 Small-C 原始碼字串。
         """
         try:
-            source = preprocess(source)
+            self.interpreter.trace = self.trace   # 同步 TRACE 狀態（NEW 後可能被重置）
+            source = preprocess(source, self._defines)
             parser = Parser(source)
             program = parser.parse()
             self.interpreter.execute_interactive(program)
@@ -292,6 +294,10 @@ class REPL:
             print(f"Syntax error: {e.msg}")
         except RuntimeError as e:
             print(self._format_runtime(e))
+        except (BreakException, ContinueException):
+            print("Runtime error: 'break'/'continue' used outside of loop.")
+        except ReturnException:
+            print("Runtime error: 'return' used outside of function.")
         except Exception as e:
             print(f"Error: {e}")
 
@@ -368,6 +374,7 @@ class REPL:
             self.buffer = lines
             self.modified = False
             self.interpreter.reset()
+            self._defines = {}
             print(f"Loaded {len(lines)} lines from '{filename}'.")
         except FileNotFoundError:
             print(f"Error: File '{filename}' not found.")
@@ -555,6 +562,7 @@ class REPL:
         self.buffer = []
         self.modified = False
         self.interpreter.reset()
+        self._defines = {}
         print("All cleared.")
 
     # ── 執行指令 ──────────────────────────────────
@@ -589,6 +597,10 @@ class REPL:
             print(f"Error at line {e.line}: {e.msg}")
         except RuntimeError as e:
             print(self._format_runtime(e))
+        except (BreakException, ContinueException):
+            print("Runtime error: 'break'/'continue' used outside of loop.")
+        except ReturnException:
+            print("Runtime error: 'return' used outside of function.")
         except Exception as e:
             print(f"Error: {e}")
 

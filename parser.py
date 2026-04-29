@@ -939,14 +939,20 @@ class Parser:
         value = None
         if self.current_token.kind == "ASSIGN":
             self._eat("ASSIGN")
-            self._eat("LBRACE")
-            value = []
-            if self.current_token.kind != "RBRACE":
-                value.append(self._expr())
-                while self.current_token.kind == "COMMA":
-                    self._eat("COMMA")
+            if self.current_token.kind == "STRING":
+                # char arr[] = "hello"; — 展開為字元初始化列表（含 null terminator）
+                s = self.current_token.value
+                self._eat("STRING")
+                value = [Char(c) for c in s] + [Number(0)]
+            else:
+                self._eat("LBRACE")
+                value = []
+                if self.current_token.kind != "RBRACE":
                     value.append(self._expr())
-            self._eat("RBRACE")
+                    while self.current_token.kind == "COMMA":
+                        self._eat("COMMA")
+                        value.append(self._expr())
+                self._eat("RBRACE")
 
         if self.current_token.kind != "SEMI":
             raise ParseError(
@@ -1036,8 +1042,12 @@ class Parser:
         while self.current_token.kind not in ("RBRACE", "EOF"):
             if self.current_token.kind == "CASE":
                 self._eat("CASE")
-                # case 值：支援整數字面量與字元字面量
-                if self.current_token.kind == "NUMBER":
+                # case 值：支援整數字面量（含負數）與字元字面量
+                if self.current_token.kind == "MINUS":
+                    self._eat("MINUS")
+                    val = -self.current_token.value
+                    self._eat("NUMBER")
+                elif self.current_token.kind == "NUMBER":
                     val = self.current_token.value
                     self._eat("NUMBER")
                 elif self.current_token.kind == "CHAR":

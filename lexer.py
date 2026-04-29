@@ -44,7 +44,7 @@ class Token:
 # 前處理：展開 #define 巨集
 # ─────────────────────────────────────────────
 
-def preprocess(source: str) -> str:
+def preprocess(source: str, defines: dict = None) -> str:
     """
     對原始碼進行簡易的前處理，支援無參數的 #define 巨集展開。
 
@@ -55,7 +55,9 @@ def preprocess(source: str) -> str:
          替換為對應的巨集值，避免誤觸其他識別字中的子字串。
 
     Args:
-        source (str): 完整的原始碼字串。
+        source  (str):        完整的原始碼字串。
+        defines (dict | None): 跨呼叫共享的巨集字典（互動模式用）；
+                               傳入 None 時建立本地字典（批次模式）。
 
     Returns:
         str: 展開巨集後的原始碼字串。
@@ -66,7 +68,8 @@ def preprocess(source: str) -> str:
         不會誤觸包含在其他識別字中的子字串（例如 #define N 8 不會
         影響 count、int 等含有字母 n 的識別字）。
     """
-    defines = {}
+    if defines is None:
+        defines = {}
     lines = []
 
     for line in source.split('\n'):

@@ -500,11 +500,20 @@ class Builtins:
         """
         if not args:
             raise RuntimeError("atoi: missing argument")
-        s = self.memory.read_string(int(args[0]))
-        try:
-            return int(s)
-        except ValueError:
+        s = self.memory.read_string(int(args[0])).strip()
+        # C atoi() 跳過前導空白，讀取可選符號，再讀數字直到非數字字元為止
+        i = 0
+        sign = 1
+        if i < len(s) and s[i] in ('+', '-'):
+            if s[i] == '-':
+                sign = -1
+            i += 1
+        j = i
+        while j < len(s) and s[j].isdigit():
+            j += 1
+        if j == i:
             return 0
+        return int32(sign * int(s[i:j]))
 
     def _itoa(self, args):
         """
