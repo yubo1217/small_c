@@ -226,7 +226,7 @@ class Interpreter:
         Args:
             node (Stmt): 要執行的陳述式節點。
         """
-        if self.trace and not isinstance(node, Block):
+        if self.trace and not isinstance(node, (Block, WhileStmt)):
             line = getattr(node, 'line', '?')
             print(f"[line {line}] {node.trace_repr()}")
 
@@ -251,7 +251,15 @@ class Interpreter:
                 self._exec_stmt(node.else_branch)
 
         elif isinstance(node, WhileStmt):
-            while self._eval_expr(node.condition):
+            while True:
+                if self.trace:
+                    line = getattr(node, 'line', '?')
+                    print(f"[line {line}] {node.trace_repr()}")
+                cond_top = self.memory.heap_top
+                cond = self._eval_expr(node.condition)
+                self.memory.free_to(cond_top)
+                if not cond:
+                    break
                 try:
                     self._exec_stmt(node.body)
                 except BreakException:
@@ -267,15 +275,22 @@ class Interpreter:
                     break
                 except ContinueException:
                     pass
-                if not self._eval_expr(node.condition):
+                cond_top = self.memory.heap_top
+                cond = self._eval_expr(node.condition)
+                self.memory.free_to(cond_top)
+                if not cond:
                     break
 
         elif isinstance(node, ForStmt):
             if node.init:
                 self._eval_expr(node.init)
             while True:
-                if node.condition and not self._eval_expr(node.condition):
-                    break
+                if node.condition:
+                    cond_top = self.memory.heap_top
+                    cond = self._eval_expr(node.condition)
+                    self.memory.free_to(cond_top)
+                    if not cond:
+                        break
                 try:
                     self._exec_stmt(node.body)
                 except BreakException:
@@ -283,7 +298,9 @@ class Interpreter:
                 except ContinueException:
                     pass
                 if node.update:
+                    upd_top = self.memory.heap_top
                     self._eval_expr(node.update)
+                    self.memory.free_to(upd_top)
 
         elif isinstance(node, Return):
             val = self._eval_expr(node.value) if node.value else 0
@@ -356,7 +373,7 @@ class Interpreter:
             RuntimeError: 遇到未知的 AST 節點類型，或陣列存取越界時。
         """
         if isinstance(node, Number):
-            return node.value
+            return int32(node.value)
 
         elif isinstance(node, Char):
             return ord(node.value)
@@ -536,6 +553,9 @@ class Interpreter:
             RuntimeError: 目標不是合法的左值時。
         """
         if isinstance(target, Identifier):
+            symbol = self.symtable.lookup(target.name)
+            if symbol.is_array:
+                raise RuntimeError("Runtime error: cannot apply ++/-- to array name.")
             val = self.symtable.get_value(target.name)
             new_val = int32(val + delta)
             self.symtable.set_value(target.name, new_val)

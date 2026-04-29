@@ -39,8 +39,10 @@ class Memory:
     所有變數、陣列、字串字面量均配置在此空間中。
 
     Attributes:
-        data     (list[int]): 記憶體陣列，初始值全為 0。
-        heap_top (int):       目前已配置空間的頂端位址（下一次 allocate 的起點）。
+        data       (list[int]):  記憶體陣列，初始值全為 0。
+        heap_top   (int):        目前已配置空間的頂端位址（下一次 allocate 的起點）。
+        _alloc_map (dict[int,int]): 配置記錄表，格式為 {start_addr: end_addr}，
+                                    供 strcat / strcpy 越界偵測使用。
     """
 
     def __init__(self, size: int = 65536):
@@ -52,6 +54,7 @@ class Memory:
         """
         self.data = [0] * size
         self.heap_top = 1  # 保留位址 0 作為 NULL，有效位址從 1 開始
+        self._alloc_map = {}  # {start_addr: end_addr}
 
     # ── 配置與釋放 ────────────────────────────────
 
@@ -72,6 +75,7 @@ class Memory:
             raise RuntimeError("Out of memory")
         addr = self.heap_top
         self.heap_top += size
+        self._alloc_map[addr] = addr + size
         return addr
 
     def free_to(self, addr: int):
@@ -82,7 +86,26 @@ class Memory:
         Args:
             addr (int): 要回退到的位址（通常是呼叫函式前記錄的 heap_top）。
         """
+        keys = [k for k in self._alloc_map if k >= addr]
+        for k in keys:
+            del self._alloc_map[k]
         self.heap_top = addr
+
+    def get_alloc_end(self, addr: int) -> int:
+        """
+        回傳包含 addr 的配置區段之結尾位址（不含）。
+        供 strcpy / strcat 越界偵測使用。
+
+        Args:
+            addr (int): 配置區段的起始位址。
+
+        Returns:
+            int: 該配置區段的結尾位址；若找不到對應配置記錄則回傳 heap_top。
+        """
+        for start, end in self._alloc_map.items():
+            if start <= addr < end:
+                return end
+        return self.heap_top
 
     # ── 整數讀寫 ──────────────────────────────────
 
@@ -183,3 +206,4 @@ class Memory:
         """
         self.data = [0] * len(self.data)
         self.heap_top = 1  # 保留位址 0 作為 NULL
+        self._alloc_map = {}

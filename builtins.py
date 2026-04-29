@@ -286,9 +286,15 @@ class Builtins:
         """
         if len(args) < 2:
             raise RuntimeError("strcpy: missing arguments")
+        dest = int(args[0])
+        if dest == 0:
+            raise RuntimeError("Runtime error: null pointer dereference")
         src = self.memory.read_string(int(args[1]))
-        self.memory.write_string(int(args[0]), src)
-        return int(args[0])
+        alloc_end = self.memory.get_alloc_end(dest)
+        if dest + len(src) + 1 > alloc_end:
+            raise RuntimeError("Runtime error: strcpy destination buffer overflow.")
+        self.memory.write_string(dest, src)
+        return dest
 
     def _strcmp(self, args):
         """
@@ -322,10 +328,16 @@ class Builtins:
         """
         if len(args) < 2:
             raise RuntimeError("strcat: missing arguments")
-        s1 = self.memory.read_string(int(args[0]))
+        dest = int(args[0])
+        if dest == 0:
+            raise RuntimeError("Runtime error: null pointer dereference")
+        s1 = self.memory.read_string(dest)
         s2 = self.memory.read_string(int(args[1]))
-        self.memory.write_string(int(args[0]), s1 + s2)
-        return int(args[0])
+        alloc_end = self.memory.get_alloc_end(dest)
+        if dest + len(s1) + len(s2) + 1 > alloc_end:
+            raise RuntimeError("Runtime error: strcat destination buffer overflow.")
+        self.memory.write_string(dest, s1 + s2)
+        return dest
 
     # ── 數學運算 ──────────────────────────────────
 

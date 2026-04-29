@@ -28,7 +28,7 @@ Usage:
 import os
 import sys
 from lexer import Lexer, preprocess
-from parser import Parser, IfStmt, ParseError
+from parser import Parser, IfStmt, FuncDef, ParseError
 from interpreter import Interpreter, BreakException, ContinueException, ReturnException
 
 
@@ -620,7 +620,10 @@ class REPL:
         try:
             source = preprocess(source)
             parser = Parser(source)
-            parser.parse()
+            program = parser.parse()
+            for decl in program.decls:
+                if isinstance(decl, FuncDef):
+                    self.interpreter.functions[decl.name] = decl
         except ParseError as e:
             errors.append(f"Error at line {e.line}: {e.msg}")
         except Exception as e:
@@ -682,8 +685,15 @@ class REPL:
                 elems_str += '}'
                 print(f"  {symbol.var_type} {name}[{symbol.array_size}] = {elems_str}")
             elif symbol.is_pointer:
-                addr = self.interpreter.memory.read(symbol.addr)
-                print(f"  {symbol.var_type} *{name} = {addr}")
+                ptr_val = self.interpreter.memory.read(symbol.addr)
+                line = f"  {symbol.var_type} *{name} = {ptr_val}"
+                if ptr_val != 0 and ptr_val < self.interpreter.memory.heap_top:
+                    try:
+                        pointed = self.interpreter.memory.read(ptr_val)
+                        line += f" (*{name} = {pointed})"
+                    except RuntimeError:
+                        pass
+                print(line)
             else:
                 val = self.interpreter.memory.read(symbol.addr)
                 if symbol.var_type == 'char':
