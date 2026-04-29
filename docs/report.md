@@ -40,7 +40,7 @@ colorlinks: true
 
 - **`symtable.py`**：符號表。以作用域堆疊（`list[dict]`）管理變數名稱與記憶體位址的對映，實現 C 語言的區域／全域作用域與變數遮蔽行為。
 
-- **`builtins_funcs.py`**：內建函式庫。以分派字典實作全部 22 個內建函式，包含輸出入（`printf`、`scanf`）、字串處理（`strlen`、`strcpy` 等）、數學運算（`abs`、`sqrt` 等）及工具函式（`atoi`、`itoa` 等）。
+- **`builtins.py`**：內建函式庫。以分派字典實作全部 22 個內建函式，包含輸出入（`printf`、`scanf`）、字串處理（`strlen`、`strcpy` 等）、數學運算（`abs`、`sqrt` 等）及工具函式（`atoi`、`itoa` 等）。
 
 - **`repl.py`**：互動介面。`ReplInputCollector` 追蹤大括號深度與字串狀態，收集跨行輸入；`REPL` 以分派字典處理 16 個環境指令，並處理互動模式下的 `else` 跨行銜接問題。
 
@@ -51,9 +51,9 @@ colorlinks: true
 由圖中可見各模組的依賴關係如下：
 
 - `repl.py` 是整合核心，依賴 `interpreter.py` 執行程式。
-- `interpreter.py` 依賴 `parser.py`（取得 AST）、`memory.py`（記憶體讀寫）、`symtable.py`（符號查詢）與 `builtins_funcs.py`（內建函式）。
+- `interpreter.py` 依賴 `parser.py`（取得 AST）、`memory.py`（記憶體讀寫）、`symtable.py`（符號查詢）與 `builtins.py`（內建函式）。
 - `parser.py` 依賴 `lexer.py` 取得 Token 串流。
-- `memory.py` 被 `symtable.py` 與 `builtins_funcs.py` 共用，是底層的共享資源。
+- `memory.py` 被 `symtable.py` 與 `builtins.py` 共用，是底層的共享資源。
 
 \FloatBarrier
 
@@ -124,6 +124,7 @@ AST 節點分為三個層次：
 在詞法分析之前，先以 `preprocess()` 處理 `#define` 巨集。設計決策：
 
 - **識別字邊界感知替換**：不用簡單的字串取代（避免把 `MAX_SIZE` 中的 `MAX` 誤換），而是以手工分詞方式逐字元掃描，僅在完整識別字邊界上進行替換。
+- **多輪迭代展開**：單輪掃描無法處理鏈式巨集（如 `#define LIMIT MAX` 再 `#define MAX 100`）。`preprocess()` 以迴圈最多重複 10 次展開，直到結果不再改變為止，確保 `LIMIT` 能正確展開為 `100`。
 - **字串與字元字面量豁免**：掃描時追蹤是否處於雙引號（字串）或單引號（字元）內部，若在其中則不進行替換，避免污染字串內容。
 - **行號補償**：`#define` 行被移除後，後續行號會偏移。透過在移除的位置插入空行保持行號一致，確保錯誤訊息中的行號對應原始輸入。
 
@@ -190,7 +191,7 @@ assignment → logic_or → logic_and → bit_or → bit_xor → bit_and
 
 ### 整數截斷
 
-所有整數運算結果在寫入記憶體前，統一透過 `int32()` 截斷為 32 位元有號整數，模擬 C 語言的整數溢位行為。`int32()` 定義在 `memory.py` 作為模組層級函式，由 `interpreter.py` 與 `builtins_funcs.py` 直接 import 使用，避免散落的行內遮罩（如 `& 0xFFFFFFFF`）。
+整數截斷發生在兩個層面：一是所有二元與一元運算的結果在回傳前均透過 `int32()` 截斷；二是 `Number` 字面量本身在求值時也套用 `int32()`，確保 `0xFFFFFFFF` 等超出 32 位元正整數範圍的字面量被正確視為 `-1`。`int32()` 定義在 `memory.py` 作為模組層級函式，由 `interpreter.py` 與 `builtins.py` 直接 import 使用，避免散落的行內遮罩（如 `& 0xFFFFFFFF`）。
 
 ## memory.py — 記憶體模型
 
@@ -200,7 +201,7 @@ assignment → logic_or → logic_and → bit_or → bit_xor → bit_and
 
 詳見第三章「符號表的資料結構設計」。
 
-## builtins_funcs.py — 內建函式
+## builtins.py — 內建函式
 
 `Builtins` 類別以一個 `_dispatch` 字典將函式名稱映射到對應的私有方法，供 `Interpreter._eval_call()` 查詢：
 
@@ -219,6 +220,7 @@ self._dispatch = {
 - **統一參數型別**：所有內建函式接收已求值的整數引數；字串引數以記憶體位址傳遞，由內建函式內部呼叫 `memory.read_string(addr)` 轉為 Python 字串。
 - **`printf` 格式碼**：手工解析格式字串，支援 `%d`、`%c`、`%s`、`%x`、`%%`，不支援欄位寬度等進階格式，符合作業規格。
 - **`scanf`**：以 Python `input()` 讀取整行，再依格式碼解析，將結果寫入指標所指位址。
+- **`strcpy` / `strcat` 安全檢查**：寫入前先驗證目標位址是否為 NULL（拋出 null pointer dereference 錯誤），再透過 `memory.get_alloc_end()` 確認目標緩衝區有足夠空間，不足時拋出緩衝區溢位錯誤，防止靜默地覆蓋相鄰變數。
 - **錯誤處理**：`sqrt()` 負數引數、`mod()` 除零均拋出 `RuntimeError`，訊息格式符合評分規格。
 
 ## repl.py — 互動式介面
@@ -335,8 +337,9 @@ declare('x', 'int')
 （保留，不使用）
 ```
 
-- **`allocate(size)`**：從 `heap_top` 開始配置 `size` 個連續單元，回傳起始位址，並將 `heap_top` 往後移動 `size`。時間複雜度 O(1)。
-- **`free_to(addr)`**：將 `heap_top` 回退到指定位址，一次性釋放其上方的所有空間。在函式返回時，直譯器記錄呼叫前的 `heap_top`，返回後呼叫 `free_to()` 批次釋放區域變數，無需逐一追蹤。
+- **`allocate(size)`**：從 `heap_top` 開始配置 `size` 個連續單元，回傳起始位址，並將 `heap_top` 往後移動 `size`。同時在 `_alloc_map`（`dict[int, int]`）中記錄 `{起始位址: 結尾位址}`，供越界偵測使用。時間複雜度 O(1)。
+- **`free_to(addr)`**：將 `heap_top` 回退到指定位址，一次性釋放其上方的所有空間，並從 `_alloc_map` 中移除所有起始位址 ≥ `addr` 的配置記錄。在函式返回或迴圈條件式求值完畢後，直譯器呼叫此方法批次釋放暫時分配，無需逐一追蹤。
+- **`get_alloc_end(addr)`**：查詢 `_alloc_map`，回傳包含 `addr` 的配置區段之結尾位址（不含），供 `strcpy`/`strcat` 等內建函式在寫入前驗證目標緩衝區是否有足夠空間。
 
 ## NULL 指標保留
 
@@ -359,7 +362,7 @@ def int32(value: int) -> int:
     return ((value + 2**31) % 2**32) - 2**31
 ```
 
-此函式利用模運算將任意整數截斷到 32 位元有號整數範圍，正確處理 Python 大整數的溢位行為，避免使用位元遮罩（`& 0xFFFFFFFF`）後再補號的繁瑣寫法。作為模組層級函式，可直接被 `interpreter.py` 和 `builtins_funcs.py` import 使用。
+此函式利用模運算將任意整數截斷到 32 位元有號整數範圍，正確處理 Python 大整數的溢位行為，避免使用位元遮罩（`& 0xFFFFFFFF`）後再補號的繁瑣寫法。作為模組層級函式，可直接被 `interpreter.py` 和 `builtins.py` import 使用。
 
 ## C 字串的模擬
 
@@ -418,9 +421,11 @@ def int32(value: int) -> int:
 |:------------------------------|:---------------------------------------------------------------------------------|:--------------------------------------------------------------------------------------|
 | `#define` 展開誤入字串        | 使用 `str.replace()` 不感知字串邊界，導致字串內的子字串也被替換                  | 改為逐字元掃描，追蹤 `in_string`/`in_char` 狀態，加識別字邊界檢查                   |
 | `#define` 行刪除造成行號偏移  | 直接刪除 `#define` 行使後續行號少 1                                              | 改為將 `#define` 行替換為空行，保持行數不變                                           |
+| 鏈式 `#define` 無法展開       | 單輪掃描只展開一層，`#define A B` + `#define B 100` 無法將 `A` 展開至 `100`      | 改為迴圈重複掃描最多 10 次，直到輸出不再變動為止                                      |
 | 互動模式 `else` 跨行誤判      | 大括號歸零後立即送出，`else` 進入下一輪解析造成語法錯誤                          | 歸零後先存入 `pending_source`，下一行若以 `else` 開頭則合併繼續收集                  |
 | 多次 `RUN` 狀態殘留           | 每次執行未重置 `Memory` 與 `SymbolTable`，全域變數與 `heap_top` 持續累積         | `RUN` 前呼叫 `interpreter.reset()`，清零記憶體並重建空的全域作用域                   |
 | `Block` 記憶體洩漏            | 大括號區塊結束後區域變數未釋放，`heap_top` 只增不減                              | 進入 `Block` 前記錄 `save_top`，`finally` 區塊中呼叫 `free_to(save_top)`             |
+| 迴圈條件式字串字面量 OOM      | `while`/`for` 條件式中的字串字面量（如 `strcmp("a","a")`）每次迭代都配置記憶體，卻未在條件判斷後釋放，導致長迴圈耗盡記憶體 | 條件式求值後立即記錄並呼叫 `free_to(cond_top)` 釋放暫時分配；`for` 的 update 表達式亦同 |
 
 \newpage
 
@@ -435,7 +440,7 @@ def int32(value: int) -> int:
 | 記憶體模型             | `Memory`、`int32()`、bump allocator                        | `memory.py`            |
 | 符號表                 | `Symbol`、`SymbolTable`、作用域堆疊                        | `symtable.py`          |
 | 直譯器核心             | `Interpreter`、控制流程例外、兩種執行模式                  | `interpreter.py`       |
-| 內建函式               | 全部 22 個內建函式（I/O、字串、數學、工具）                | `builtins_funcs.py`    |
+| 內建函式               | 全部 22 個內建函式（I/O、字串、數學、工具）                | `builtins.py`    |
 | REPL                   | 指令分派、多行收集、`else` 跨行偵測                        | `repl.py`              |
 | 測試                   | 10 個測試程式與預期輸出                                    | `tests/`               |
 | 報告                   | 本技術報告                                                 | `docs/report.md`       |

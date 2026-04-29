@@ -1,7 +1,7 @@
 digraph "packages_SmallC" {
 rankdir=BT
 charset="utf-8"
-"builtins_funcs" [color="black", label=<builtins_funcs>, shape="box", style="solid"];
+"builtins" [color="black", label=<builtins>, shape="box", style="solid"];
 "interpreter" [color="black", label=<interpreter>, shape="box", style="solid"];
 "lexer" [color="black", label=<lexer>, shape="box", style="solid"];
 "main" [color="black", label=<main>, shape="box", style="solid"];
@@ -9,8 +9,8 @@ charset="utf-8"
 "parser" [color="black", label=<parser>, shape="box", style="solid"];
 "repl" [color="black", label=<repl>, shape="box", style="solid"];
 "symtable" [color="black", label=<symtable>, shape="box", style="solid"];
-"builtins_funcs" -> "memory" [arrowhead="open", arrowtail="none"];
-"interpreter" -> "builtins_funcs" [arrowhead="open", arrowtail="none"];
+"builtins" -> "memory" [arrowhead="open", arrowtail="none"];
+"interpreter" -> "builtins" [arrowhead="open", arrowtail="none"];
 "interpreter" -> "memory" [arrowhead="open", arrowtail="none"];
 "interpreter" -> "parser" [arrowhead="open", arrowtail="none"];
 "interpreter" -> "symtable" [arrowhead="open", arrowtail="none"];

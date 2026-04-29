@@ -12,7 +12,7 @@ charset="utf-8"
 "parser.Block" [color="black", fontcolor="black", label=<{Block|line<br ALIGN="LEFT"/>statements<br ALIGN="LEFT"/>|}>, shape="record", style="solid"];
 "interpreter.BreakException" [color="black", fontcolor="red", label=<{BreakException|<br ALIGN="LEFT"/>|}>, shape="record", style="solid"];
 "parser.BreakStmt" [color="black", fontcolor="black", label=<{BreakStmt|line<br ALIGN="LEFT"/>|trace_repr()<br ALIGN="LEFT"/>}>, shape="record", style="solid"];
-"builtins_funcs.Builtins" [color="black", fontcolor="black", label=<{Builtins|memory<br ALIGN="LEFT"/>|call(name: str, args: list)<br ALIGN="LEFT"/>is_builtin(name: str): bool<br ALIGN="LEFT"/>}>, shape="record", style="solid"];
+"builtins.Builtins" [color="black", fontcolor="black", label=<{Builtins|memory<br ALIGN="LEFT"/>|call(name: str, args: list)<br ALIGN="LEFT"/>is_builtin(name: str): bool<br ALIGN="LEFT"/>}>, shape="record", style="solid"];
 "parser.Call" [color="black", fontcolor="black", label=<{Call|args<br ALIGN="LEFT"/>name<br ALIGN="LEFT"/>|}>, shape="record", style="solid"];
 "parser.Char" [color="black", fontcolor="black", label=<{Char|value<br ALIGN="LEFT"/>|}>, shape="record", style="solid"];
 "interpreter.ContinueException" [color="black", fontcolor="red", label=<{ContinueException|<br ALIGN="LEFT"/>|}>, shape="record", style="solid"];
@@ -31,7 +31,7 @@ charset="utf-8"
 "lexer.Lexer" [color="black", fontcolor="black", label=<{Lexer|DOUBLE_OPS : dict<br ALIGN="LEFT"/>KEYWORDS : dict<br ALIGN="LEFT"/>SINGLE_OPS : dict<br ALIGN="LEFT"/>SYMBOLS : dict<br ALIGN="LEFT"/>current_char : NoneType<br ALIGN="LEFT"/>line : int<br ALIGN="LEFT"/>pos : int<br ALIGN="LEFT"/>text : str<br ALIGN="LEFT"/>|tokenize()<br ALIGN="LEFT"/>}>, shape="record", style="solid"];
 "parser.Literal" [color="black", fontcolor="black", label=<{Literal|<br ALIGN="LEFT"/>|}>, shape="record", style="solid"];
 "parser.LoopStmt" [color="black", fontcolor="black", label=<{LoopStmt|<br ALIGN="LEFT"/>|}>, shape="record", style="solid"];
-"memory.Memory" [color="black", fontcolor="black", label=<{Memory|data : list<br ALIGN="LEFT"/>heap_top : int<br ALIGN="LEFT"/>|allocate(size: int): int<br ALIGN="LEFT"/>free_to(addr: int)<br ALIGN="LEFT"/>read(addr: int): int<br ALIGN="LEFT"/>read_string(addr: int): str<br ALIGN="LEFT"/>reset()<br ALIGN="LEFT"/>write(addr: int, value: int)<br ALIGN="LEFT"/>write_char(addr: int, value: int)<br ALIGN="LEFT"/>write_string(addr: int, s: str)<br ALIGN="LEFT"/>}>, shape="record", style="solid"];
+"memory.Memory" [color="black", fontcolor="black", label=<{Memory|data : list<br ALIGN="LEFT"/>heap_top : int<br ALIGN="LEFT"/>_alloc_map : dict<br ALIGN="LEFT"/>|allocate(size: int): int<br ALIGN="LEFT"/>free_to(addr: int)<br ALIGN="LEFT"/>get_alloc_end(addr: int): int<br ALIGN="LEFT"/>read(addr: int): int<br ALIGN="LEFT"/>read_string(addr: int): str<br ALIGN="LEFT"/>reset()<br ALIGN="LEFT"/>write(addr: int, value: int)<br ALIGN="LEFT"/>write_char(addr: int, value: int)<br ALIGN="LEFT"/>write_string(addr: int, s: str)<br ALIGN="LEFT"/>}>, shape="record", style="solid"];
 "parser.Number" [color="black", fontcolor="black", label=<{Number|value<br ALIGN="LEFT"/>|}>, shape="record", style="solid"];
 "parser.Parser" [color="black", fontcolor="black", label=<{Parser|current_token<br ALIGN="LEFT"/>lexer<br ALIGN="LEFT"/>pos : int<br ALIGN="LEFT"/>tokens : list<br ALIGN="LEFT"/>|parse(): Program<br ALIGN="LEFT"/>}>, shape="record", style="solid"];
 "parser.PointerExpr" [color="black", fontcolor="black", label=<{PointerExpr|<br ALIGN="LEFT"/>|}>, shape="record", style="solid"];
@@ -79,7 +79,7 @@ charset="utf-8"
 "parser.UnaryOp" -> "parser.Expr" [arrowhead="empty", arrowtail="none"];
 "parser.VarDecl" -> "parser.Decl" [arrowhead="empty", arrowtail="none"];
 "parser.WhileStmt" -> "parser.LoopStmt" [arrowhead="empty", arrowtail="none"];
-"builtins_funcs.Builtins" -> "interpreter.Interpreter" [arrowhead="diamond", arrowtail="none", fontcolor="green", label="builtins", style="solid"];
+"builtins.Builtins" -> "interpreter.Interpreter" [arrowhead="diamond", arrowtail="none", fontcolor="green", label="builtins", style="solid"];
 "interpreter.Interpreter" -> "repl.REPL" [arrowhead="diamond", arrowtail="none", fontcolor="green", label="interpreter", style="solid"];
 "lexer.Lexer" -> "parser.Parser" [arrowhead="diamond", arrowtail="none", fontcolor="green", label="lexer", style="solid"];
 "memory.Memory" -> "interpreter.Interpreter" [arrowhead="diamond", arrowtail="none", fontcolor="green", label="memory", style="solid"];

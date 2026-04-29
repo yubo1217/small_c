@@ -12,14 +12,14 @@ charset="utf-8"
 "parser.Parser" [label=<{Parser|tokens : list<br ALIGN="LEFT"/>pos : int<br ALIGN="LEFT"/>current_token<br ALIGN="LEFT"/>|parse(): Program<br ALIGN="LEFT"/>}>, shape="record", style="solid"];
 
 // ── Memory ────────────────────────────────────
-"memory.Memory" [label=<{Memory|data : list[int]<br ALIGN="LEFT"/>heap_top : int<br ALIGN="LEFT"/>|allocate(size): int<br ALIGN="LEFT"/>free_to(addr)<br ALIGN="LEFT"/>read(addr): int<br ALIGN="LEFT"/>write(addr, value)<br ALIGN="LEFT"/>write_char(addr, value)<br ALIGN="LEFT"/>read_string(addr): str<br ALIGN="LEFT"/>write_string(addr, s)<br ALIGN="LEFT"/>reset()<br ALIGN="LEFT"/>}>, shape="record", style="solid"];
+"memory.Memory" [label=<{Memory|data : list[int]<br ALIGN="LEFT"/>heap_top : int<br ALIGN="LEFT"/>_alloc_map : dict<br ALIGN="LEFT"/>|allocate(size): int<br ALIGN="LEFT"/>free_to(addr)<br ALIGN="LEFT"/>get_alloc_end(addr): int<br ALIGN="LEFT"/>read(addr): int<br ALIGN="LEFT"/>write(addr, value)<br ALIGN="LEFT"/>write_char(addr, value)<br ALIGN="LEFT"/>read_string(addr): str<br ALIGN="LEFT"/>write_string(addr, s)<br ALIGN="LEFT"/>reset()<br ALIGN="LEFT"/>}>, shape="record", style="solid"];
 
 // ── SymbolTable ───────────────────────────────
 "symtable.Symbol" [label=<{Symbol|name : str<br ALIGN="LEFT"/>var_type : str<br ALIGN="LEFT"/>addr : int<br ALIGN="LEFT"/>is_pointer : bool<br ALIGN="LEFT"/>is_array : bool<br ALIGN="LEFT"/>array_size : int<br ALIGN="LEFT"/>|}>, shape="record", style="solid"];
 "symtable.SymbolTable" [label=<{SymbolTable|scopes : list[dict]<br ALIGN="LEFT"/>memory<br ALIGN="LEFT"/>|push_scope()<br ALIGN="LEFT"/>pop_scope()<br ALIGN="LEFT"/>declare(name, type): Symbol<br ALIGN="LEFT"/>declare_array(name, type, size): Symbol<br ALIGN="LEFT"/>lookup(name): Symbol<br ALIGN="LEFT"/>get_value(name): int<br ALIGN="LEFT"/>set_value(name, value)<br ALIGN="LEFT"/>reset()<br ALIGN="LEFT"/>}>, shape="record", style="solid"];
 
 // ── Builtins ──────────────────────────────────
-"builtins_funcs.Builtins" [label=<{Builtins|memory<br ALIGN="LEFT"/>_dispatch : dict<br ALIGN="LEFT"/>|call(name, args)<br ALIGN="LEFT"/>is_builtin(name): bool<br ALIGN="LEFT"/>}>, shape="record", style="solid"];
+"builtins.Builtins" [label=<{Builtins|memory<br ALIGN="LEFT"/>_dispatch : dict<br ALIGN="LEFT"/>|call(name, args)<br ALIGN="LEFT"/>is_builtin(name): bool<br ALIGN="LEFT"/>}>, shape="record", style="solid"];
 
 // ── 控制流程例外 ──────────────────────────────
 "interpreter.BreakException" [label=<{BreakException||}>, shape="record", style="solid", fontcolor="red"];
@@ -37,9 +37,9 @@ charset="utf-8"
 "lexer.Lexer"               -> "parser.Parser"          [arrowhead="diamond", label="lexer", fontcolor="green"];
 "memory.Memory"             -> "symtable.SymbolTable"   [arrowhead="diamond", label="memory", fontcolor="green"];
 "memory.Memory"             -> "interpreter.Interpreter"[arrowhead="diamond", label="memory", fontcolor="green"];
-"memory.Memory"             -> "builtins_funcs.Builtins"[arrowhead="diamond", label="memory", fontcolor="green"];
+"memory.Memory"             -> "builtins.Builtins"[arrowhead="diamond", label="memory", fontcolor="green"];
 "symtable.SymbolTable"      -> "interpreter.Interpreter"[arrowhead="diamond", label="symtable", fontcolor="green"];
-"builtins_funcs.Builtins"   -> "interpreter.Interpreter"[arrowhead="diamond", label="builtins", fontcolor="green"];
+"builtins.Builtins"   -> "interpreter.Interpreter"[arrowhead="diamond", label="builtins", fontcolor="green"];
 "interpreter.Interpreter"   -> "repl.REPL"              [arrowhead="diamond", label="interpreter", fontcolor="green"];
 
 // ── 使用關係 ──────────────────────────────────
