@@ -1,8 +1,5 @@
 **/__pycache__/
 *.py[cod]
 *$py.class
-# 忽略虛擬環境資料夾
 venv/
 .venv/
-env/
-ENV/
